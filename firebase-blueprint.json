@@ -1,0 +1,169 @@
+{
+  "entities": {
+    "Depot": {
+      "title": "Depot",
+      "description": "Un entrepôt de stockage au PAD",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "type": { "type": "string", "enum": ["frozen", "cold", "dry"] },
+        "capacity_cartons": { "type": "number" },
+        "current_load": { "type": "number" },
+        "color": { "type": "string" }
+      },
+      "required": ["name", "code", "type", "capacity_cartons"]
+    },
+    "Stock": {
+      "title": "Stock Item",
+      "description": "Un lot de marchandise stocké",
+      "type": "object",
+      "properties": {
+        "productName": { "type": "string" },
+        "sku": { "type": "string" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" },
+        "containerId": { "type": "string" },
+        "productionDate": { "type": "string", "format": "date-time" },
+        "expirationDate": { "type": "string", "format": "date-time" },
+        "lot": { "type": "string" },
+        "supplier": { "type": "string" },
+        "depotId": { "type": "string" },
+        "location": { "type": "string" },
+        "quantity": { "type": "number" },
+        "initialQuantity": { "type": "number" },
+        "threshold": { "type": "number" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productName", "sku", "category", "depotId", "quantity", "expirationDate"]
+    },
+    "StockMovement": {
+      "title": "Stock Movement",
+      "description": "Un mouvement de stock (entrée/sortie)",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "quantity": { "type": "number" },
+        "reason": { "type": "string" },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "quantity", "userId"]
+    },
+    "Alert": {
+      "title": "Notification Alert",
+      "description": "Une alerte système (stock bas, FEFO)",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "level": { "type": "string", "enum": ["warning", "critical"] },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "body", "level"]
+    },
+    "Document": {
+      "title": "Logistic Document",
+      "description": "Un document lié à une cargaison",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string" },
+        "fileType": { "type": "string" },
+        "downloadURL": { "type": "string" },
+        "category": { "type": "string", "enum": ["invoice", "bill_of_lading", "sanitary_certificate", "halal_certificate", "temperature_log", "customs", "packing_list", "other"] },
+        "status": { "type": "string" },
+        "extraitsIA": { "type": "object" },
+        "linkedContainer": { "type": "string" },
+        "actionTaken": { "type": "string", "enum": ["new_container", "depot_add"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["fileName", "category", "createdBy"]
+    },
+    "TrackingEntry": {
+      "title": "Tracking Entry",
+      "description": "Un point de passage dans le flux logistique",
+      "type": "object",
+      "properties": {
+        "containerNumber": { "type": "string" },
+        "status": { "type": "string" },
+        "location": { "type": "string" },
+        "product": { "type": "string" },
+        "quantity": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["containerNumber", "status", "timestamp"]
+    },
+    "Container": {
+      "title": "ISO Container",
+      "description": "Un conteneur maritime actif",
+      "type": "object",
+      "properties": {
+        "containerNumber": { "type": "string" },
+        "status": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "products": { "type": "array" },
+        "compliance": { "type": "object" },
+        "complianceScore": { "type": "number" },
+        "eta": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["containerNumber", "status"]
+    }
+  },
+  "firestore": {
+    "/alerts": {
+      "schema": "Alert",
+      "description": "Collection globale des alertes système"
+    },
+    "/movements": {
+      "schema": "StockMovement",
+      "description": "Historique global des mouvements pour le Dashboard"
+    },
+    "/logs": {
+      "schema": "StockMovement",
+      "description": "Logs d'activité système et utilisateur"
+    },
+    "/document_library": {
+      "schema": "Document",
+      "description": "Archives des documents logistiques et extractions IA"
+    },
+    "/tracking": {
+      "schema": "TrackingEntry",
+      "description": "Flux en temps réel des passages logistiques"
+    },
+    "/containers": {
+      "schema": "Container",
+      "description": "Suivi des conteneurs actifs"
+    },
+    "/inventaire": {
+      "schema": "Stock",
+      "description": "Label fonctionnel pour la vue globale de l'inventaire"
+    },
+    "/centre": {
+      "schema": "Alert",
+      "description": "Label fonctionnel pour le centre de pilotage"
+    },
+    "/entrees": {
+      "schema": "TrackingEntry",
+      "description": "Label fonctionnel pour le flux des entrées"
+    },
+    "/depots": {
+      "schema": "Depot",
+      "description": "Collection des dépôts"
+    },
+    "/depots/{depotId}/stock": {
+      "schema": "Stock",
+      "description": "Sous-collection du stock par dépôt"
+    },
+    "/depots/{depotId}/stock/{stockId}/movements": {
+      "schema": "StockMovement",
+      "description": "Historique des mouvements pour un lot spécifique"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "DEPOTEK",
+  "description": "Système de gestion logistique FEFO multi-dépôts avec OCR d'invoices et interface vocale.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}
