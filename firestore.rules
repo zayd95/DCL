@@ -1,0 +1,108 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 🔧 FUNCTIONS
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "habibjallow95@gmail.com" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
+      );
+    }
+
+    function isStockEditor() {
+      return isAdmin() || (isSignedIn() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["depot", "manager", "checker"]
+      ));
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidStockUpdate() {
+      // Autorise la modification de la quantité et des métadonnées de tracking
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(["quantity", "cartons", "status", "updatedAt", "lastMovement", "aging_days"]);
+    }
+
+    // 🔐 USERS (Resté inchangé)
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // 📦 INVENTAIRE (Anciennement stock)
+    match /stock/{stockId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isStockEditor() && isValidStockUpdate();
+      allow delete: if isAdmin();
+    }
+
+    // 🏢 DÉPÔTS
+    match /depots/{depotId} {
+      allow read, write: if isSignedIn();
+
+      // Sub-collection support
+      match /stock/{stockId} {
+        allow read, write: if isSignedIn();
+        match /movements/{moveId} {
+          allow read, write: if isSignedIn();
+        }
+      }
+    }
+
+    // 🔄 ENTRÉES / SORTIES (Anciennement movements)
+    match /movements/{movementId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // 🚢 CONTAINERS / TRACKING
+    match /containers/{containerId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /tracking/{trackId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // 🔔 ALERTS, LOGS & SETTINGS
+    match /alerts/{alertId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /logs/{logId} { allow read, write: if isSignedIn(); }
+    match /reception_logs/{logId} { allow read, write: if isSignedIn(); }
+    match /tracking_logs/{logId} { allow read, write: if isSignedIn(); }
+    
+    match /settings/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 📚 OTHER UTILITIES
+    match /document_library/{docId} { allow read, write: if isSignedIn(); }
+    match /stats/{statId} { allow read, write: if isSignedIn(); }
+    match /inventaire/{docId} { allow read, write: if isSignedIn(); }
+    match /centre/{docId} { allow read, write: if isSignedIn(); }
+    match /entrees/{docId} { allow read, write: if isSignedIn(); }
+
+    // 🔍 COLLECTION GROUPS (Mandatory for useStock and Dashboard)
+    match /{path=**}/stock/{stockId} {
+      allow read: if isSignedIn();
+    }
+    match /{path=**}/movements/{moveId} {
+      allow read: if isSignedIn();
+    }
+  }
+}

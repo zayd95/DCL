@@ -1,0 +1,21 @@
+
+{
+  "name": "Dakar Cold-Link OS",
+  "short_name": "ColdLink",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A2540",
+  "theme_color": "#0A2540",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/dakar-logistics/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/dakar-logistics/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

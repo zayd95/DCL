@@ -1,0 +1,89 @@
+
+@import "tailwindcss";
+
+@theme {
+  --color-ocean-dark: #0d1642;
+  --color-ocean-primary: #1a237e;
+  --color-ocean-light: #F1F4FF;
+  --color-ocean-soft: #F8FAFF;
+  --color-white: #FFFFFF;
+  --color-gray-100: #F6F9FC;
+  --color-gray-200: #E3E8EE;
+  --color-gray-300: #A3ACB9;
+  --color-gray-600: #4F566B;
+  --color-gray-900: #1A1F36;
+  --color-accent-coral: #FF6B6B;
+  --color-accent-gold: #FFB800;
+  --color-success: #00C853;
+  
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-100 text-gray-900;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-ocean-primary text-white p-4 rounded-xl font-bold transition-all active:scale-95 text-sm flex items-center justify-center gap-2;
+  }
+  
+  .card-ocean {
+    @apply bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden;
+  }
+  
+  .value-card {
+    @apply bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 text-white;
+  }
+
+  .stat-pill {
+    @apply bg-white/10 rounded-xl p-3 text-center;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-200 rounded-full;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
