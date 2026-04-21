@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEPOTEK Design System Preview</title>
+<style>
+  :root {
+    --bg: #fafbfc;
+    --ink: #1A1F36;
+    --muted: #6B7280;
+    --line: #E3E8EE;
+    --accent: #1a237e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; }
+  .shell { max-width: 1100px; margin: 0 auto; padding: 48px 32px 120px; }
+  header.hero { padding-bottom: 40px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  h1 { margin: 0 0 8px; font-size: 36px; font-weight: 900; letter-spacing: -0.02em; color: var(--accent); }
+  h1 span { color: var(--ink); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .sub { color: var(--muted); font-size: 15px; line-height: 1.6; max-width: 640px; }
+  nav.toc { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+  nav.toc a { text-decoration: none; padding: 8px 16px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--ink); background: #fff; }
+  nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+  section.part { margin-bottom: 80px; scroll-margin-top: 24px; }
+  section.part > h2 { font-size: 11px; font-weight: 900; letter-spacing: 0.25em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+  section.part > h3 { font-size: 28px; font-weight: 900; letter-spacing: -0.01em; margin: 0 0 32px; }
+  .block { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 28px; margin-bottom: 20px; }
+  .block-title { font-size: 10px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; gap: 12px; }
+  .placeholder { padding: 60px; text-align: center; color: var(--muted); font-size: 13px; font-style: italic; border: 2px dashed var(--line); border-radius: 12px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="hero">
+    <span class="tag">Design System · v0.1</span>
+    <h1>DEPOTEK <span>— Visual Token Reference</span></h1>
+    <p class="sub">Current state of the design system, unregistered color gaps found across the codebase, and the proposed expanded token system. Open this file in a browser. Each part is rendered below.</p>
+    <nav class="toc">
+      <a href="#part1">01 · Tokens</a>
+      <a href="#part2">02 · Components</a>
+      <a href="#part3">03 · Gaps &amp; Migration</a>
+    </nav>
+  </header>
+
+  <section id="part1" class="part">
+    <h2>Part 01</h2>
+    <h3>Color, Type &amp; Spacing Tokens</h3>
+
+    <style>
+      .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+      .swatch { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; }
+      .swatch .chip { height: 80px; display: flex; align-items: flex-end; padding: 10px 14px; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+      .swatch .chip.dark-text { color: #1A1F36; text-shadow: none; }
+      .swatch .meta { padding: 12px 14px; }
+      .swatch .name { font-size: 12px; font-weight: 800; margin: 0 0 2px; }
+      .swatch .hex { font-size: 11px; color: var(--muted); font-family: 'SF Mono', ui-monospace, monospace; margin: 0 0 6px; }
+      .swatch .use { font-size: 10px; color: var(--muted); line-height: 1.4; }
+      .swatch.gap { border: 1px dashed #ef4444; }
+      .swatch.gap .badge { display: inline-block; font-size: 9px; font-weight: 900; letter-spacing: 0.1em; color: #ef4444; background: #fee2e2; padding: 2px 6px; border-radius: 4px; margin-top: 4px; }
+      .type-scale { display: grid; grid-template-columns: 140px 1fr 100px; gap: 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+      .type-scale > div { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+      .type-scale > div:nth-last-child(-n+3) { border-bottom: 0; }
+      .type-scale .name { background: #f9fafb; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+      .type-scale .sample { color: var(--ink); }
+      .type-scale .size { font-family: 'SF Mono', ui-monospace, monospace; font-size: 11px; color: var(--muted); justify-content: flex-end; }
+      .shadow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
+      .shadow-box { background: #fff; border-radius: 16px; padding: 32px; text-align: center; }
+      .shadow-box .lbl { font-size: 10px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+      .sh-card { box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+      .sh-modal { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+      .sh-button { box-shadow: 0 10px 20px rgba(26,35,126,0.2); }
+      .sh-inner { box-shadow: inset 0 2px 4px rgba(0,0,0,0.06); }
+      .radius-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; }
+      .radius-box { aspect-ratio: 1; background: linear-gradient(135deg, #1a237e, #0d1642); display: flex; align-items: flex-end; justify-content: center; padding: 10px; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+      .legend { display: flex; gap: 20px; font-size: 11px; color: var(--muted); margin-bottom: 16px; align-items: center; }
+      .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    </style>
+
+    <div class="block">
+      <p class="block-title">01 · Current Registered Colors <span style="font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted);">— from <code>src/index.css</code> @theme</span></p>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="chip" style="background:#0d1642">OCEAN DARK</div><div class="meta"><p class="name">ocean-dark</p><p class="hex">#0d1642</p><p class="use">Login screen bg, darkest headers</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#1a237e">OCEAN PRIMARY</div><div class="meta"><p class="name">ocean-primary</p><p class="hex">#1a237e</p><p class="use">CTAs, active tabs, accents</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#F1F4FF">OCEAN LIGHT</div><div class="meta"><p class="name">ocean-light</p><p class="hex">#F1F4FF</p><p class="use">Card tints, selected states</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#F8FAFF">OCEAN SOFT</div><div class="meta"><p class="name">ocean-soft</p><p class="hex">#F8FAFF</p><p class="use">Soft panel backgrounds</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#F6F9FC">GRAY 100</div><div class="meta"><p class="name">gray-100</p><p class="hex">#F6F9FC</p><p class="use">App body bg</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#E3E8EE">GRAY 200</div><div class="meta"><p class="name">gray-200</p><p class="hex">#E3E8EE</p><p class="use">Borders, dividers</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#A3ACB9">GRAY 300</div><div class="meta"><p class="name">gray-300</p><p class="hex">#A3ACB9</p><p class="use">Disabled, placeholders</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#4F566B">GRAY 600</div><div class="meta"><p class="name">gray-600</p><p class="hex">#4F566B</p><p class="use">Secondary text</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#1A1F36">GRAY 900</div><div class="meta"><p class="name">gray-900</p><p class="hex">#1A1F36</p><p class="use">Body text</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#FF6B6B">CORAL</div><div class="meta"><p class="name">accent-coral</p><p class="hex">#FF6B6B</p><p class="use">Alerts, destructive</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#FFB800">GOLD</div><div class="meta"><p class="name">accent-gold</p><p class="hex">#FFB800</p><p class="use">Warnings</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#00C853">SUCCESS</div><div class="meta"><p class="name">success</p><p class="hex">#00C853</p><p class="use">Success states</p></div></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <p class="block-title">02 · Unregistered Colors Found In Codebase <span style="font-weight: 500; text-transform: none; letter-spacing: 0; color: #ef4444;">— these don't exist in your theme but are used in screens</span></p>
+      <div class="legend"><span><span class="dot" style="background:#ef4444"></span>Gap color (hardcoded hex)</span></div>
+      <div class="swatch-grid">
+        <div class="swatch gap"><div class="chip" style="background:#0A2540">#0A2540</div><div class="meta"><p class="name">— unnamed —</p><p class="hex">#0A2540</p><p class="use">Used in StockCard, UploadFlow, DepotManager, Settings (8+ files)</p><span class="badge">NOT IN THEME</span></div></div>
+        <div class="swatch gap"><div class="chip dark-text" style="background:#F8FAFC">#F8FAFC</div><div class="meta"><p class="name">— page bg variant A —</p><p class="hex">#F8FAFC</p><p class="use">Page background in 5+ screens (Dashboard, Notifications, DocumentLibrary…)</p><span class="badge">CONFLICTS WITH ocean-soft</span></div></div>
+        <div class="swatch gap"><div class="chip dark-text" style="background:#f8f9fa">#f8f9fa</div><div class="meta"><p class="name">— page bg variant B —</p><p class="hex">#f8f9fa</p><p class="use">Reception screen only</p><span class="badge">DUPLICATE</span></div></div>
+        <div class="swatch gap"><div class="chip dark-text" style="background:#f5f5f7">#f5f5f7</div><div class="meta"><p class="name">— page bg variant C —</p><p class="hex">#f5f5f7</p><p class="use">AddStock screen only</p><span class="badge">DUPLICATE</span></div></div>
+        <div class="swatch gap"><div class="chip" style="background:#4CAF50">#4CAF50</div><div class="meta"><p class="name">— green variant —</p><p class="hex">#4CAF50</p><p class="use">Reception, StockHome "live" dots</p><span class="badge">CONFLICTS WITH success #00C853</span></div></div>
+        <div class="swatch gap"><div class="chip dark-text" style="background:#F1F5F9">slate-100</div><div class="meta"><p class="name">Tailwind slate-*</p><p class="hex">#F1F5F9 (ex.)</p><p class="use">Used 40+ times across components &amp; screens</p><span class="badge">NOT REGISTERED</span></div></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <p class="block-title">03 · Proposed Expanded Token System</p>
+      <p style="font-size: 13px; color: var(--muted); margin: 0 0 20px; line-height: 1.6;">Rename for clarity. Add semantic tokens so screens never reach for raw hex again. Every token maps to an existing value in the codebase — nothing invented.</p>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="chip" style="background:#0A2540">INK DEEPEST</div><div class="meta"><p class="name">ocean-ink</p><p class="hex">#0A2540</p><p class="use">NEW · headings, icon btns — replaces hardcoded #0A2540</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#0d1642">INK DARK</div><div class="meta"><p class="name">ocean-dark</p><p class="hex">#0d1642</p><p class="use">KEEP · brand-dark surfaces</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#1a237e">BRAND</div><div class="meta"><p class="name">ocean-primary</p><p class="hex">#1a237e</p><p class="use">KEEP · all CTAs</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#F8FAFC">PAGE BG</div><div class="meta"><p class="name">surface-page</p><p class="hex">#F8FAFC</p><p class="use">NEW · canonical app bg — kills the 4 variants</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#FFFFFF">SURFACE</div><div class="meta"><p class="name">surface-card</p><p class="hex">#FFFFFF</p><p class="use">NEW · card + modal bg</p></div></div>
+        <div class="swatch"><div class="chip dark-text" style="background:#F1F5F9">SUBTLE</div><div class="meta"><p class="name">surface-subtle</p><p class="hex">#F1F5F9</p><p class="use">NEW · inputs, sections · replaces slate-100</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#00C853">SUCCESS</div><div class="meta"><p class="name">status-success</p><p class="hex">#00C853</p><p class="use">KEEP · #4CAF50 should migrate here</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#FFB800">WARNING</div><div class="meta"><p class="name">status-warning</p><p class="hex">#FFB800</p><p class="use">KEEP · FEFO 8–30 days</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#FF6B6B">DANGER</div><div class="meta"><p class="name">status-danger</p><p class="hex">#FF6B6B</p><p class="use">KEEP · FEFO &lt;7 days, destructive</p></div></div>
+        <div class="swatch"><div class="chip" style="background:#3B82F6">INFO</div><div class="meta"><p class="name">status-info</p><p class="hex">#3B82F6</p><p class="use">NEW · transfer/neutral actions</p></div></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <p class="block-title">04 · Typography Scale</p>
+      <p style="font-size: 13px; color: var(--muted); margin: 0 0 20px; line-height: 1.6;">Replaces arbitrary <code>text-[8px]</code>…<code>text-[12px]</code> sprinkled across 15+ files. 6 named tiers, each with a semantic purpose.</p>
+      <div class="type-scale">
+        <div class="name">micro</div><div class="sample" style="font-size:9px; font-weight:900; letter-spacing:0.1em; text-transform:uppercase;">AU QUAI · TRANSIT · LOT-BFF-01</div><div class="size">9px · 900</div>
+        <div class="name">label</div><div class="sample" style="font-size:10px; font-weight:900; letter-spacing:0.2em; text-transform:uppercase;">INVENTAIRE · DÉPÔTS · VOIR TOUT</div><div class="size">10px · 900</div>
+        <div class="name">caption</div><div class="sample" style="font-size:11px; font-weight:700; color:var(--muted);">Sub-labels, helper text, counters</div><div class="size">11px · 700</div>
+        <div class="name">body</div><div class="sample" style="font-size:13px; font-weight:500;">Product names, descriptions, form values</div><div class="size">13px · 500</div>
+        <div class="name">title</div><div class="sample" style="font-size:16px; font-weight:900; letter-spacing:-0.01em;">Card headings, stock names</div><div class="size">16px · 900</div>
+        <div class="name">display</div><div class="sample" style="font-size:28px; font-weight:900; letter-spacing:-0.02em; color:var(--accent);">KPI values</div><div class="size">28px · 900</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <p class="block-title">05 · Shadow Tokens</p>
+      <p style="font-size: 13px; color: var(--muted); margin: 0 0 20px; line-height: 1.6;">Kills ad-hoc <code>shadow-[0_4px_20px_rgba(0,0,0,0.05)]</code> inline strings.</p>
+      <div class="shadow-grid">
+        <div class="shadow-box sh-card"><p class="lbl">SHADOW-CARD</p></div>
+        <div class="shadow-box sh-button" style="background:#1a237e; color:#fff;"><p class="lbl" style="color:rgba(255,255,255,0.7)">SHADOW-BUTTON</p></div>
+        <div class="shadow-box sh-modal"><p class="lbl">SHADOW-MODAL</p></div>
+        <div class="shadow-box sh-inner" style="background:#F8FAFC;"><p class="lbl">SHADOW-INNER</p></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <p class="block-title">06 · Border Radius Tokens</p>
+      <div class="radius-grid">
+        <div class="radius-box" style="border-radius:8px">R-SM · 8</div>
+        <div class="radius-box" style="border-radius:12px">R-MD · 12</div>
+        <div class="radius-box" style="border-radius:16px">R-LG · 16</div>
+        <div class="radius-box" style="border-radius:24px">R-XL · 24</div>
+        <div class="radius-box" style="border-radius:32px">R-2XL · 32</div>
+        <div class="radius-box" style="border-radius:999px">R-FULL</div>
+      </div>
+    </div>
+
+  </section>
+
+  <section id="part2" class="part">
+    <h2>Part 02</h2>
+    <h3>Component Previews</h3>
+    <div class="placeholder">Part 2 not yet added</div>
+  </section>
+
+  <section id="part3" class="part">
+    <h2>Part 03</h2>
+    <h3>Gaps &amp; Migration Path</h3>
+    <div class="placeholder">Part 3 not yet added</div>
+  </section>
+
+</div>
+</body>
+</html>
