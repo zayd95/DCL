@@ -39,8 +39,12 @@ export function isFefoAlert(item: any) {
 }
 
 export function isLowStockAlert(item: any) {
-  if (!item || item.min_threshold === undefined) return false;
-  return item.cartons <= item.min_threshold && item.status !== 'delivered';
+  if (!item) return false;
+  // quantity is canonical; cartons/units are backward-compat aliases
+  const qty = item.quantity ?? item.cartons ?? item.units ?? 0;
+  const threshold = item.threshold ?? item.min_threshold;
+  if (threshold === undefined || threshold === null) return false;
+  return qty <= threshold && item.status !== 'delivered';
 }
 
 export function handleFirestoreError(error: any, operationType: string, path: string | null = null, auth: any = null) {
@@ -115,12 +119,10 @@ export function computeStockPayload(input: any) {
   const stockType = input.stockType || 'unitized';
   const units = stockType === 'unitized' ? (Number(input.units) || null) : null;
   const unitWeight = stockType === 'unitized' ? (Number(input.unitWeight) || null) : null;
-  
-  // Cost normalization
+
   const rawCost = input.costPrice !== undefined ? input.costPrice : input.unitPrice;
   const costPrice = (rawCost !== '' && rawCost !== null && rawCost !== undefined) ? Number(rawCost) : null;
-  
-  // Weight logic
+
   let totalWeightKg = 0;
   if (stockType === 'unitized') {
     totalWeightKg = (units || 0) * (unitWeight || 0);
@@ -128,47 +130,49 @@ export function computeStockPayload(input: any) {
     totalWeightKg = Number(input.totalWeightKg) || 0;
   }
 
-  // Financial logic
   let totalValue = null;
   if (costPrice !== null) {
     const cp = input.costPer || (stockType === 'unitized' ? 'unit' : 'kg');
-    if (cp === 'kg') {
-      totalValue = totalWeightKg * costPrice;
-    } else {
-      totalValue = (units || 0) * costPrice;
-    }
+    totalValue = cp === 'kg' ? totalWeightKg * costPrice : (units || 0) * costPrice;
   }
 
   const productName = input.productName || input.product || 'Sans nom';
   const depotId = input.depotId || input.depot_id || 'unassigned';
+  // quantity is the canonical field used for all comparisons and increments
+  const quantity = units ?? totalWeightKg;
+  const threshold = Number(input.threshold ?? input.min_threshold) || 10;
 
   return {
     sku: input.sku || '',
-    productName: productName,
-    product: productName, // Backward compat
+    productName,
+    product: productName,
     category: input.category || '',
-    stockType: stockType,
-    units: units,
-    cartons: units || 0, // Backward compat
-    quantity: units || totalWeightKg, // Used in multi-depot queries
-    unitWeight: unitWeight,
-    totalWeightKg: totalWeightKg,
-    costPrice: costPrice,
-    unitPrice: costPrice, // Backward compat
+    stockType,
+    units,
+    cartons: units ?? 0,
+    quantity,
+    unitWeight,
+    totalWeightKg,
+    costPrice,
+    unitPrice: costPrice,
     cost_basis: totalValue || 0,
-    totalValue: totalValue,
-    depotId: depotId,
+    totalValue,
+    depotId,
     depot_id: depotId,
     lotNumber: input.lotNumber || input.lot || '',
     expirationDate: input.expirationDate || input.expiration || '',
     container: input.container || '',
     supplier: input.supplier || '',
     location: input.location || '',
-    threshold: Number(input.threshold) || 10,
+    threshold,
+    min_threshold: threshold,
     productionDate: input.productionDate || '',
     costPer: input.costPer || (stockType === 'unitized' ? 'unit' : 'kg'),
     costCurrency: input.costCurrency || 'XOF',
     derivedFromContainer: !!input.container,
     status: input.status || 'active',
+    // Required StockItem fields — callers can override if they have live values
+    fefo_score: input.fefo_score ?? 0,
+    aging_days: input.aging_days ?? 0,
   };
 }

@@ -245,48 +245,43 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
         
         const newStockRef = doc(collection(db, "depots", depotId, "stock"));
         
-        // UNIFIED LOGIC
         const stockData = computeStockPayload(formData);
         const payload = {
           ...stockData,
           id: newStockRef.id,
           updatedAt: serverTimestamp(),
           createdAt: serverTimestamp(),
-          aging_days: 0,
-          fefo_score: 100,
-          createdBy: auth.currentUser?.uid || 'anon'
+          createdBy: auth.currentUser?.uid || 'anon',
         };
 
         transaction.set(newStockRef, payload);
 
-        // Update logs / movements
-        const movementRef = doc(collection(newStockRef, "movements"));
-        transaction.set(movementRef, {
-          type: "entry",
-          sku: payload.sku,
-          stockType: payload.stockType,
-          units: payload.units,
-          totalWeightKg: payload.totalWeightKg,
-          costPrice: payload.costPrice,
-          costPer: payload.costPer,
+        // Per-stock movement — visible in StockDetail LogsView
+        transaction.set(doc(collection(newStockRef, 'movements')), {
+          type: 'entry',
+          quantity: payload.quantity,
+          previousQty: 0,
+          newQty: payload.quantity,
+          reason: 'Entrée Inventaire Hub',
+          notes: payload.container ? `Conteneur: ${payload.container}` : '',
           userName: auth.currentUser?.displayName || 'Agent',
           userId: auth.currentUser?.uid || 'anon',
           timestamp: serverTimestamp(),
           createdAt: serverTimestamp(),
-          reason: "Entrée Inventaire Hub"
         });
 
         if (depotRef) {
+          // current_load uses the same unit as quantity (canonical)
           transaction.update(depotRef, {
-            current_load: increment(payload.units || payload.totalWeightKg),
-            updatedAt: serverTimestamp()
+            current_load: increment(payload.quantity),
+            updatedAt: serverTimestamp(),
           });
         }
 
         transaction.set(statsRef, {
           valeurStock: increment(payload.totalValue || 0),
           totalCartons: increment(payload.units || 0),
-          lastUpdated: serverTimestamp()
+          lastUpdated: serverTimestamp(),
         }, { merge: true });
       });
 
@@ -485,7 +480,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
             />
 
             {/* Financial Preview */}
-            <div className="bg-surface-subtle/30 rounded-xl p-4 border border-ocean-soft">
+            <div className="bg-surface-subtle/30 rounded-xl p-4 border border-border-default">
                <div className="flex items-center justify-between gap-4">
                   <div className="flex flex-col">
                     <span className="text-micro font-black text-brand uppercase tracking-widest mb-1">Valeur Totaleestimée</span>
@@ -638,7 +633,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
             {/* Threshold restoration */}
             <div className="space-y-2">
-              <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">Seuil Alerte ({formData.threshold}%)</label>
+              <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">Seuil Alerte Stock Bas ({formData.threshold} unités)</label>
               <div className="flex items-center gap-4 bg-surface-subtle rounded-xl p-3">
                 <input 
                   type="range" 
@@ -647,7 +642,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
                   step="5"
                   value={formData.threshold}
                   onChange={e => setFormData(p => ({ ...p, threshold: parseInt(e.target.value) }))}
-                  className="flex-1 accent-ocean-primary h-1 bg-gray-200 rounded-full appearance-none cursor-pointer"
+                  className="flex-1 accent-brand h-1 bg-surface-subtle rounded-full appearance-none cursor-pointer"
                 />
               </div>
             </div>
@@ -662,7 +657,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
             "w-full py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-caption shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3",
             isValid 
               ? "bg-brand text-white shadow-brand/30" 
-              : "bg-gray-200 text-text-muted cursor-not-allowed"
+              : "bg-surface-subtle text-text-muted cursor-not-allowed"
           )}
         >
           {loading ? 'Saisie en cours...' : 'Créer & Ajouter au Stock'}
