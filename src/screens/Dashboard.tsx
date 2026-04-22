@@ -218,7 +218,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
   }, [allStock, depots]);
 
   return (
-    <div className="h-full bg-[#F8FAFC] max-w-[480px] mx-auto font-sans overflow-hidden relative flex flex-col text-ocean-dark">
+    <div className="h-full bg-surface-page max-w-[480px] mx-auto font-sans overflow-hidden relative flex flex-col text-brand-dark">
       {/* HEADER: COMMAND CENTER */}
       <header className="flex-none bg-gradient-to-br from-ocean-dark to-ocean-primary p-3 rounded-b-xl shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-white/10 rounded-full -mr-40 -mt-40 blur-3xl opacity-50" />
@@ -229,7 +229,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
               </div>
               <div>
                 <h1 className="text-lg font-black text-white tracking-tighter uppercase leading-none">CENTRE</h1>
-                <p className="text-[8px] font-black text-white/40 uppercase tracking-[0.2em] mt-1">DEPOTEK HUB</p>
+                <p className="text-micro font-black text-white/40 uppercase tracking-[0.2em] mt-1">DEPOTEK HUB</p>
               </div>
            </div>
         </div>
@@ -245,13 +245,13 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  <div className="w-6 h-6 bg-blue-500/10 text-blue-600 rounded-lg flex items-center justify-center">
                     <Zap size={12} />
                  </div>
-                 <p className="text-[6px] font-black text-slate-400 uppercase tracking-widest leading-none">Passage</p>
+                 <p className="text-micro font-black text-text-muted uppercase tracking-widest leading-none">Passage</p>
               </div>
               <div>
-                <h2 className="text-base font-black text-ocean-dark tracking-tighter leading-none">
-                  {todayVolume} <span className="text-[8px] text-slate-400 capitalize font-bold">ctn</span>
+                <h2 className="text-base font-black text-brand-dark tracking-tighter leading-none">
+                  {todayVolume} <span className="text-micro text-text-muted capitalize font-bold">ctn</span>
                 </h2>
-                <p className="text-[6px] font-black text-blue-600/60 uppercase tracking-[0.15em] mt-1">Aujourd'hui</p>
+                <p className="text-micro font-black text-blue-600/60 uppercase tracking-[0.15em] mt-1">Aujourd'hui</p>
               </div>
            </div>
            
@@ -261,13 +261,13 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  <div className="w-6 h-6 bg-emerald-500/10 text-emerald-600 rounded-lg flex items-center justify-center">
                     <TrendingUp size={12} />
                  </div>
-                 <p className="text-[6px] font-black text-slate-400 uppercase tracking-widest leading-none">Valeur</p>
+                 <p className="text-micro font-black text-text-muted uppercase tracking-widest leading-none">Valeur</p>
               </div>
               <div>
-                <h2 className="text-base font-black text-ocean-dark tracking-tighter leading-none">
+                <h2 className="text-base font-black text-brand-dark tracking-tighter leading-none">
                   {(stats.totalValue / 1000000).toFixed(1)}M
                 </h2>
-                <p className="text-[6px] font-black text-emerald-600/60 uppercase tracking-[0.15em] mt-1">FCFA (WMS)</p>
+                <p className="text-micro font-black text-emerald-600/60 uppercase tracking-[0.15em] mt-1">FCFA (WMS)</p>
               </div>
            </div>
 
@@ -277,11 +277,11 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  <div className="w-6 h-6 bg-amber-500/10 text-amber-600 rounded-lg flex items-center justify-center">
                     <Building2 size={12} />
                  </div>
-                 <p className="text-[6px] font-black text-slate-400 uppercase tracking-widest leading-none">Espace</p>
+                 <p className="text-micro font-black text-text-muted uppercase tracking-widest leading-none">Espace</p>
               </div>
               <div>
                 <div className="flex items-end gap-1 leading-none">
-                  <h2 className="text-base font-black text-ocean-dark tracking-tighter">
+                  <h2 className="text-base font-black text-brand-dark tracking-tighter">
                     {Math.round(stats.averageSaturation)}%
                   </h2>
                 </div>
@@ -300,18 +300,18 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  <div className="w-6 h-6 bg-purple-500/10 text-purple-600 rounded-lg flex items-center justify-center">
                     <ShieldCheck size={12} />
                  </div>
-                 <p className="text-[6px] font-black text-slate-400 uppercase tracking-widest leading-none">Qualité</p>
+                 <p className="text-micro font-black text-text-muted uppercase tracking-widest leading-none">Qualité</p>
               </div>
               <div>
                 <div className="flex items-center gap-1 leading-none">
                   <h2 className={cn(
                     "text-base font-black tracking-tighter",
-                    stats.fefoHealth < 80 ? "text-orange-500" : "text-ocean-dark"
+                    stats.fefoHealth < 80 ? "text-orange-500" : "text-brand-dark"
                   )}>
                     {Math.round(stats.fefoHealth)}%
                   </h2>
                 </div>
-                <p className="text-[6px] font-black text-purple-600/60 uppercase tracking-[0.15em] mt-1">Santé FEFO</p>
+                <p className="text-micro font-black text-purple-600/60 uppercase tracking-[0.15em] mt-1">Santé FEFO</p>
               </div>
            </div>
         </section>
@@ -319,20 +319,20 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
         {/* PRIORITE DU JOUR */}
         <section className="space-y-2">
            <div className="flex items-center gap-2 px-1">
-             <div className="w-1.5 h-1.5 bg-ocean-primary rounded-full" />
-             <h3 className="text-[8px] font-black text-ocean-dark uppercase tracking-[0.2em]">Priorité du Jour</h3>
+             <div className="w-1.5 h-1.5 bg-brand rounded-full" />
+             <h3 className="text-micro font-black text-brand-dark uppercase tracking-[0.2em]">Priorité du Jour</h3>
            </div>
-           <div className="bg-ocean-dark/95 backdrop-blur-xl p-3 rounded-xl shadow-xl shadow-ocean-dark/10 relative overflow-hidden group border border-white/10">
+           <div className="bg-brand-dark/95 backdrop-blur-xl p-3 rounded-xl shadow-xl shadow-ocean-dark/10 relative overflow-hidden group border border-white/10">
               <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/5 rounded-full blur-2xl group-hover:scale-125 transition-transform" />
               <div className="flex items-start gap-3 relative z-10">
                  <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center text-white shrink-0">
                     <Anchor size={16} />
                  </div>
                  <div className="flex-1">
-                    <h4 className="text-white font-black text-[11px] uppercase tracking-tight">Dépotage MSC Prévu</h4>
-                    <p className="text-white/60 text-[9px] font-medium mt-1 leading-relaxed">2 conteneurs MSC attendus au HUB avant 16h.</p>
+                    <h4 className="text-white font-black text-caption uppercase tracking-tight">Dépotage MSC Prévu</h4>
+                    <p className="text-white/60 text-micro font-medium mt-1 leading-relaxed">2 conteneurs MSC attendus au HUB avant 16h.</p>
                     <div className="flex gap-2 mt-2">
-                       <button onClick={() => onNavigate('entrees')} className="flex items-center gap-1.5 text-[7px] font-black text-white bg-white/10 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-white/10 hover:bg-white hover:text-ocean-dark transition-all">
+                       <button onClick={() => onNavigate('entrees')} className="flex items-center gap-1.5 text-micro font-black text-white bg-white/10 px-2.5 py-1.5 rounded-lg uppercase tracking-widest border border-white/10 hover:bg-white hover:text-brand-dark transition-all">
                           Action <ArrowRight size={10} />
                        </button>
                        <button 
@@ -340,7 +340,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                            const res = await fetch('/api/test-push', { method: 'POST' });
                            if (res.ok) alert("Test envoyé!");
                          }}
-                         className="text-[7px] font-black text-white/30 uppercase hover:text-white transition-colors"
+                         className="text-micro font-black text-white/30 uppercase hover:text-white transition-colors"
                        >
                          Diag 📡
                        </button>
@@ -354,7 +354,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
         {smartInsights.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center justify-between px-1">
-               <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Smart Insights</h3>
+               <h3 className="text-micro font-black text-text-muted uppercase tracking-[0.2em]">Smart Insights</h3>
                <Lightbulb size={12} className="text-yellow-500 animate-pulse opacity-50" />
             </div>
             <div className="space-y-2">
@@ -365,12 +365,12 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  )}>
                     <div className="flex items-center gap-1.5">
                        <Zap size={12} className={insight.type === 'danger' ? "text-red-500" : "text-orange-500"} />
-                       <h5 className={cn("text-[9px] font-black uppercase tracking-tight", insight.type === 'danger' ? "text-red-900" : "text-orange-900")}>
+                       <h5 className={cn("text-micro font-black uppercase tracking-tight", insight.type === 'danger' ? "text-red-900" : "text-orange-900")}>
                          {insight.title}
                        </h5>
                     </div>
-                    <p className="text-[9px] font-medium text-slate-600 leading-tight">{insight.desc}</p>
-                    <div className={cn("text-[8px] font-black uppercase tracking-widest mt-0.5", insight.type === 'danger' ? "text-red-500" : "text-orange-500")}>
+                    <p className="text-micro font-medium text-text-secondary leading-tight">{insight.desc}</p>
+                    <div className={cn("text-micro font-black uppercase tracking-widest mt-0.5", insight.type === 'danger' ? "text-red-500" : "text-orange-500")}>
                       {insight.suggested}
                     </div>
                  </div>
@@ -382,7 +382,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
         {/* ACTIONS REQUISES (Actionable Cards) */}
         <section className="space-y-3">
            <div className="flex items-center justify-between px-1">
-             <h3 className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Actions Requises</h3>
+             <h3 className="text-micro font-black text-text-muted uppercase tracking-[0.2em]">Actions Requises</h3>
            </div>
            <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
               {requiredActions.map(action => (
@@ -401,13 +401,13 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                         "w-8 h-8 rounded-lg flex items-center justify-center shadow-lg",
                         action.severity === 'critical' ? "bg-red-500 text-white shadow-red-500/30" :
                         action.severity === 'warning' ? "bg-orange-500 text-white shadow-orange-500/30" :
-                        "bg-ocean-primary text-white shadow-ocean-primary/30"
+                        "bg-brand text-white shadow-brand/30"
                       )}>
                          {React.cloneElement(action.icon as React.ReactElement, { size: 16 } as any)}
                       </div>
                       <div className={cn(
-                        "px-1.5 py-0.5 rounded text-[6px] font-black uppercase tracking-widest",
-                        action.severity === 'critical' ? "bg-red-50 text-red-500" : "bg-slate-50 text-slate-400"
+                        "px-1.5 py-0.5 rounded text-micro font-black uppercase tracking-widest",
+                        action.severity === 'critical' ? "bg-red-50 text-red-500" : "bg-surface-subtle text-text-muted"
                       )}>
                         {action.severity === 'critical' ? 'Urgent' : 'Info'}
                       </div>
@@ -415,20 +415,20 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                    
                    <div className="min-h-[50px]">
                       <h4 className={cn(
-                         "text-[10px] font-black uppercase tracking-tight mb-0.5",
+                         "text-label font-black uppercase tracking-tight mb-0.5",
                          action.severity === 'critical' ? "text-red-600" :
                          action.severity === 'warning' ? "text-orange-600" :
-                         "text-ocean-dark"
+                         "text-brand-dark"
                       )}>{action.title}</h4>
-                      <p className="text-[9px] font-medium text-slate-500 leading-tight mb-1">{action.desc}</p>
+                      <p className="text-micro font-medium text-text-secondary leading-tight mb-1">{action.desc}</p>
                    </div>
                    
                    <button 
                      onClick={action.action}
                      className={cn(
-                       "w-full py-2 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all",
+                       "w-full py-2 rounded-lg text-micro font-black uppercase tracking-widest transition-all",
                        action.severity === 'critical' ? "bg-red-500 text-white shadow-lg" :
-                       "bg-ocean-dark text-white shadow-lg"
+                       "bg-brand-dark text-white shadow-lg"
                      )}
                    >
                      {action.cta}
@@ -441,8 +441,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
         {/* SATURATION DEPOTS NORMALIZED */}
         <section className="space-y-3">
            <div className="flex items-center justify-between px-1">
-              <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Occupation Dépôts</h3>
-              <Building2 size={12} className="text-ocean-primary opacity-30" />
+              <h3 className="text-micro font-black text-text-muted uppercase tracking-[0.2em]">Occupation Dépôts</h3>
+              <Building2 size={12} className="text-brand opacity-30" />
            </div>
            <div className="bg-white/70 backdrop-blur-xl p-2.5 space-y-2 shadow-lg border border-white/50" style={{ borderRadius: '16px' }}>
               {depots.map(depot => {
@@ -455,18 +455,18 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-1.5">
                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: depot.color }} />
-                         <span className="text-[9px] font-black text-ocean-dark uppercase tracking-tight">{depot.name}</span>
+                         <span className="text-micro font-black text-brand-dark uppercase tracking-tight">{depot.name}</span>
                       </div>
                       <span className={cn(
-                        "text-[9px] font-black tracking-tight",
-                        isFull ? "text-red-600" : "text-slate-400"
+                        "text-micro font-black tracking-tight",
+                        isFull ? "text-red-600" : "text-text-muted"
                       )}>{Math.round(rawSaturation)}%</span>
                     </div>
-                    <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-1 w-full bg-surface-subtle rounded-full overflow-hidden">
                        <motion.div 
                          initial={{ width: 0 }}
                          animate={{ width: `${saturationProgress}%` }}
-                         className={cn("h-full rounded-full", isFull ? "bg-red-500" : "bg-ocean-primary")}
+                         className={cn("h-full rounded-full", isFull ? "bg-red-500" : "bg-brand")}
                        />
                     </div>
                   </div>
@@ -478,8 +478,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
         {/* FLUX D'ACTIVITÉ SMART FEED */}
         <section className="space-y-3">
            <div className="flex items-center justify-between px-1">
-              <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Flux Live</h3>
-              <Clock size={12} className="text-ocean-primary opacity-20" />
+              <h3 className="text-micro font-black text-text-muted uppercase tracking-[0.2em]">Flux Live</h3>
+              <Clock size={12} className="text-brand opacity-20" />
            </div>
            <div className="space-y-2">
               {logs.slice(0, 6).map(log => {
@@ -489,20 +489,20 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                   <div key={log.id} className="flex items-start gap-3 p-3 bg-white/70 backdrop-blur-xl border border-white/50 shadow-sm" style={{ borderRadius: '14px' }}>
                      <div className={cn(
                        "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm",
-                       isUrgent ? "bg-red-50 text-red-500" : "bg-slate-50 text-slate-400"
+                       isUrgent ? "bg-red-50 text-red-500" : "bg-surface-subtle text-text-muted"
                      )}>
                         {isUrgent ? <AlertCircle size={14} /> : <Activity size={14} />}
                      </div>
                      <div className="flex-1 min-w-0 pt-0.5">
                         <div className="flex justify-between items-start">
-                           <h5 className="text-[10px] font-bold text-ocean-dark uppercase tracking-tight truncate pr-2">
+                           <h5 className="text-label font-bold text-brand-dark uppercase tracking-tight truncate pr-2">
                              {log.message}
                            </h5>
-                           <span className="text-[7px] font-black text-slate-300">
+                           <span className="text-micro font-black text-text-muted">
                              {log.timestamp?.toDate ? new Date(log.timestamp.toDate()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '...'}
                            </span>
                         </div>
-                        <p className="text-[7px] font-black text-ocean-primary/50 uppercase tracking-widest mt-0.5">
+                        <p className="text-micro font-black text-brand/50 uppercase tracking-widest mt-0.5">
                            {log.user} • {log.container || 'HUB'}
                         </p>
                      </div>
@@ -525,8 +525,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                  className="flex flex-col items-end gap-4 mb-3"
                >
                   <FabOption label="Sortie" icon={<ArrowUpRight size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-orange-500" />
-                  <FabOption label="Entrée" icon={<ArrowDownRight size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-ocean-primary" />
-                  <FabOption label="Rechercher" icon={<Search size={20} />} onClick={() => onNavigate('Scan')} color="bg-ocean-dark" />
+                  <FabOption label="Entrée" icon={<ArrowDownRight size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-brand" />
+                  <FabOption label="Rechercher" icon={<Search size={20} />} onClick={() => onNavigate('Scan')} color="bg-brand-dark" />
                </motion.div>
             )}
          </AnimatePresence>
@@ -537,7 +537,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
             onClick={() => setIsFabOpen(!isFabOpen)}
             className={cn(
               "w-16 h-16 rounded-full shadow-[0_15px_40px_rgba(26,35,126,0.3)] flex items-center justify-center border-[5px] border-white transition-all shadow-xl",
-              isFabOpen ? "bg-ocean-dark text-white rotate-45" : "bg-ocean-primary text-white"
+              isFabOpen ? "bg-brand-dark text-white rotate-45" : "bg-brand text-white"
             )}
          >
             <Plus size={32} strokeWidth={3} />
@@ -553,7 +553,7 @@ const FabOption = ({ label, icon, onClick, color }: any) => (
     onClick={onClick}
     className="flex items-center gap-3 group"
   >
-     <span className="px-3 py-1.5 bg-white shadow-xl rounded-xl text-[10px] font-black text-ocean-dark uppercase tracking-widest border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
+     <span className="px-3 py-1.5 bg-white shadow-xl rounded-xl text-label font-black text-brand-dark uppercase tracking-widest border border-border-default opacity-0 group-hover:opacity-100 transition-opacity">
         {label}
      </span>
      <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-black/5", color)}>

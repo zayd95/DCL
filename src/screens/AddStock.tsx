@@ -301,9 +301,9 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
   };
 
   return (
-    <div className="h-screen bg-[#f5f5f7] max-w-[480px] mx-auto pb-32 font-sans overflow-y-auto no-scrollbar scroll-smooth">
+    <div className="h-screen bg-surface-page max-w-[480px] mx-auto pb-32 font-sans overflow-y-auto no-scrollbar scroll-smooth">
       {/* Top Header */}
-      <header className="sticky top-0 z-[100] bg-ocean-dark p-6 rounded-b-[40px] shadow-xl flex items-center justify-between overflow-hidden">
+      <header className="sticky top-0 z-[100] bg-brand-dark p-6 rounded-b-[40px] shadow-xl flex items-center justify-between overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl p-6" />
         <div className="flex items-center gap-4 relative z-10">
           <button onClick={onBack} className="p-2 bg-white/10 rounded-xl text-white">
@@ -315,9 +315,9 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
           disabled={!isValid || loading}
           onClick={handleSubmit}
           className={cn(
-            "relative z-10 px-6 py-2.5 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all active:scale-95",
+            "relative z-10 px-6 py-2.5 rounded-2xl font-black uppercase tracking-widest text-label transition-all active:scale-95",
             isValid 
-              ? "bg-white text-ocean-primary shadow-xl" 
+              ? "bg-white text-brand shadow-xl" 
               : "bg-white/10 text-white/40 cursor-not-allowed"
           )}
         >
@@ -330,7 +330,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
         {showDepotModal && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-[32px] p-8 w-full max-w-sm shadow-2xl">
-              <h3 className="text-xl font-black text-ocean-dark mb-6 uppercase tracking-tight">Nouveau Dépôt</h3>
+              <h3 className="text-xl font-black text-brand-dark mb-6 uppercase tracking-tight">Nouveau Dépôt</h3>
               <div className="space-y-4">
                 <FormInput 
                   label="Nom du Dépôt" 
@@ -341,7 +341,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
                 <div className="flex gap-3 pt-4">
                   <button 
                     onClick={() => { setShowDepotModal(false); setNewDepotName(''); }}
-                    className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] text-gray-400"
+                    className="flex-1 py-4 bg-surface-page rounded-2xl font-black uppercase text-label text-text-muted"
                   >
                     Annuler
                   </button>
@@ -372,7 +372,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
                       }
                     }} 
                     disabled={loading || !newDepotName.trim()} 
-                    className="flex-1 py-4 bg-ocean-primary rounded-2xl font-black uppercase text-[10px] text-white shadow-lg shadow-blue-500/20 flex items-center justify-center disabled:opacity-50"
+                    className="flex-1 py-4 bg-brand rounded-2xl font-black uppercase text-label text-white shadow-lg shadow-blue-500/20 flex items-center justify-center disabled:opacity-50"
                   >
                     {loading ? '...' : 'Créer'}
                   </button>
@@ -385,12 +385,12 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
       <main className="p-[14px] space-y-4">
         {/* Type selector */}
-        <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl">
+        <div className="flex gap-2 p-1 bg-surface-page rounded-2xl">
           <button 
             onClick={() => setFormData(p => ({ ...p, stockType: 'unitized' }))}
             className={cn(
-              "flex-1 py-3 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all",
-              formData.stockType === 'unitized' ? "bg-white text-ocean-primary shadow-sm" : "text-gray-400"
+              "flex-1 py-3 rounded-xl font-black text-caption uppercase tracking-wider transition-all",
+              formData.stockType === 'unitized' ? "bg-white text-brand shadow-sm" : "text-text-muted"
             )}
           >
             📦 Cartons (Unitized)
@@ -398,8 +398,8 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
           <button 
             onClick={() => setFormData(p => ({ ...p, stockType: 'bulk' }))}
             className={cn(
-              "flex-1 py-3 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all",
-              formData.stockType === 'bulk' ? "bg-white text-ocean-primary shadow-sm" : "text-gray-400"
+              "flex-1 py-3 rounded-xl font-black text-caption uppercase tracking-wider transition-all",
+              formData.stockType === 'bulk' ? "bg-white text-brand shadow-sm" : "text-text-muted"
             )}
           >
             ⚖️ Vrac (Bulk)
@@ -407,12 +407,12 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
         </div>
 
         {/* Card 1: Produit */}
-        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-gray-100 flex flex-col gap-4">
+        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-border-default flex flex-col gap-4">
           <div className="flex items-center gap-3">
-             <div className="w-8 h-8 bg-ocean-soft rounded-xl flex items-center justify-center text-ocean-primary">
+             <div className="w-8 h-8 bg-surface-subtle rounded-xl flex items-center justify-center text-brand">
                 <Package size={16} />
              </div>
-             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Détails Produit</h2>
+             <h2 className="text-label font-black text-text-muted uppercase tracking-[0.2em]">Détails Produit</h2>
           </div>
 
           <div className="space-y-3">
@@ -485,17 +485,17 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
             />
 
             {/* Financial Preview */}
-            <div className="bg-ocean-soft/30 rounded-xl p-4 border border-ocean-soft">
+            <div className="bg-surface-subtle/30 rounded-xl p-4 border border-ocean-soft">
                <div className="flex items-center justify-between gap-4">
                   <div className="flex flex-col">
-                    <span className="text-[9px] font-black text-ocean-primary uppercase tracking-widest mb-1">Valeur Totaleestimée</span>
-                    <span className="text-sm font-black text-ocean-dark">
-                      {!canSeeFinancials ? "••••" : (financialData.isCostSet ? financialData.totalVal.toLocaleString() : "Non défini")} {financialData.isCostSet && canSeeFinancials && <span className="text-[10px] opacity-40">XOF</span>}
+                    <span className="text-micro font-black text-brand uppercase tracking-widest mb-1">Valeur Totaleestimée</span>
+                    <span className="text-sm font-black text-brand-dark">
+                      {!canSeeFinancials ? "••••" : (financialData.isCostSet ? financialData.totalVal.toLocaleString() : "Non défini")} {financialData.isCostSet && canSeeFinancials && <span className="text-label opacity-40">XOF</span>}
                     </span>
                   </div>
                   <div className="text-right">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Poids Total</span>
-                    <span className="text-xs font-bold text-slate-600">{financialData.totalWeight.toLocaleString()} <span className="text-[9px] opacity-50">KG</span></span>
+                    <span className="text-micro font-black text-text-muted uppercase tracking-widest block mb-1">Poids Total</span>
+                    <span className="text-xs font-bold text-text-secondary">{financialData.totalWeight.toLocaleString()} <span className="text-micro opacity-50">KG</span></span>
                   </div>
                </div>
             </div>
@@ -503,12 +503,12 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
         </div>
 
         {/* Card 2: Dates FEFO */}
-        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-gray-100 flex flex-col gap-4">
+        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-border-default flex flex-col gap-4">
           <div className="flex items-center gap-3">
              <div className="w-8 h-8 bg-orange-50 rounded-xl flex items-center justify-center text-orange-500">
                 <Calendar size={16} />
              </div>
-             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Traçabilité FEFO</h2>
+             <h2 className="text-label font-black text-text-muted uppercase tracking-[0.2em]">Traçabilité FEFO</h2>
           </div>
 
           <div className="space-y-3">
@@ -537,8 +537,8 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
               )}>
                 <AlertTriangle size={16} />
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-black uppercase tracking-widest">Alerte FEFO</span>
-                  <span className="text-[8px] font-bold opacity-80 uppercase">
+                  <span className="text-micro font-black uppercase tracking-widest">Alerte FEFO</span>
+                  <span className="text-micro font-bold opacity-80 uppercase">
                     {daysToExpiry <= 0 ? "Le produit est expiré" : `Expire dans ${daysToExpiry} jours`}
                   </span>
                 </div>
@@ -563,22 +563,22 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
         </div>
 
         {/* Card 3: Finance & Location */}
-        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-gray-100 flex flex-col gap-4">
+        <div className="bg-white rounded-[24px] p-5 shadow-sm border border-border-default flex flex-col gap-4">
           <div className="flex items-center gap-3">
              <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500">
                 <Warehouse size={16} />
              </div>
-             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Logistique & Coûts</h2>
+             <h2 className="text-label font-black text-text-muted uppercase tracking-[0.2em]">Logistique & Coûts</h2>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between px-1">
-                <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest">Sélectionner Dépôt</label>
+                <label className="text-micro font-black uppercase text-text-muted tracking-widest">Sélectionner Dépôt</label>
                 {depots.length === 0 && (
                   <button 
                     onClick={() => setShowDepotModal(true)}
-                    className="text-[8px] font-black text-ocean-primary uppercase bg-ocean-soft px-2 py-1 rounded-lg"
+                    className="text-micro font-black text-brand uppercase bg-surface-subtle px-2 py-1 rounded-lg"
                   >
                     + Créer un dépôt
                   </button>
@@ -587,7 +587,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
               {depots.length === 0 ? (
                 <div className="p-4 bg-orange-50 border border-orange-100 rounded-xl flex items-center gap-2 text-orange-600">
                   <AlertTriangle size={14} />
-                  <span className="text-[9px] font-black uppercase">Aucun dépôt trouvé</span>
+                  <span className="text-micro font-black uppercase">Aucun dépôt trouvé</span>
                 </div>
               ) : (
                 <FormSelect 
@@ -608,20 +608,20 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest px-1">Coût d'Achat (Optionnel)</label>
+                <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">Coût d'Achat (Optionnel)</label>
                 <div className="flex gap-1">
                   <input 
                     type="number"
                     value={canSeeFinancials ? formData.costPrice : ''}
                     disabled={!canSeeFinancials}
                     onChange={e => setFormData(p => ({ ...p, costPrice: e.target.value }))}
-                    className="flex-1 bg-gray-50 border border-transparent rounded-xl p-3 text-xs font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all shadow-inner disabled:bg-gray-100 disabled:placeholder-gray-300"
+                    className="flex-1 bg-surface-subtle border border-transparent rounded-xl p-3 text-xs font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all shadow-inner disabled:bg-surface-page disabled:placeholder-gray-300"
                     placeholder={canSeeFinancials ? "Ex: 45000" : "••••"}
                   />
                   <select 
                     value={formData.costPer}
                     onChange={e => setFormData(p => ({ ...p, costPer: e.target.value as any }))}
-                    className="w-16 bg-gray-50 border border-transparent rounded-xl p-3 text-[9px] font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all shadow-inner"
+                    className="w-16 bg-surface-subtle border border-transparent rounded-xl p-3 text-micro font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all shadow-inner"
                   >
                     <option value="unit">/u</option>
                     <option value="kg">/kg</option>
@@ -638,8 +638,8 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
             {/* Threshold restoration */}
             <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest px-1">Seuil Alerte ({formData.threshold}%)</label>
-              <div className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
+              <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">Seuil Alerte ({formData.threshold}%)</label>
+              <div className="flex items-center gap-4 bg-surface-subtle rounded-xl p-3">
                 <input 
                   type="range" 
                   min="5" 
@@ -659,10 +659,10 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
           disabled={!isValid || loading}
           onClick={handleSubmit}
           className={cn(
-            "w-full py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3",
+            "w-full py-5 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-caption shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3",
             isValid 
-              ? "bg-ocean-primary text-white shadow-ocean-primary/30" 
-              : "bg-gray-200 text-gray-400 cursor-not-allowed"
+              ? "bg-brand text-white shadow-brand/30" 
+              : "bg-gray-200 text-text-muted cursor-not-allowed"
           )}
         >
           {loading ? 'Saisie en cours...' : 'Créer & Ajouter au Stock'}
@@ -675,14 +675,14 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
 const FormInput = ({ label, value, onChange, placeholder, type = "text", inputMode, autoCapitalize, className }: any) => (
   <div className={cn("space-y-1.5", className)}>
-    <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest px-1">{label}</label>
+    <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">{label}</label>
     <input 
       type={type}
       value={value}
       inputMode={inputMode}
       autoCapitalize={autoCapitalize}
       onChange={e => onChange(e.target.value)}
-      className="w-full bg-gray-50 border border-transparent rounded-xl p-3 text-xs font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all shadow-inner"
+      className="w-full bg-surface-subtle border border-transparent rounded-xl p-3 text-xs font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all shadow-inner"
       placeholder={placeholder}
     />
   </div>
@@ -690,12 +690,12 @@ const FormInput = ({ label, value, onChange, placeholder, type = "text", inputMo
 
 const FormSelect = ({ label, options, value, onChange, className }: any) => (
   <div className={cn("space-y-1.5", className)}>
-    {label && <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest px-1">{label}</label>}
+    {label && <label className="text-micro font-black uppercase text-text-muted tracking-widest px-1">{label}</label>}
     <div className="relative">
       <select 
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-50 border border-transparent rounded-xl p-3 text-xs font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all shadow-inner appearance-none"
+        className="w-full bg-surface-subtle border border-transparent rounded-xl p-3 text-xs font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all shadow-inner appearance-none"
       >
         <option value="" disabled>Sélectionner...</option>
         {options.map((opt: any) => (
@@ -704,7 +704,7 @@ const FormSelect = ({ label, options, value, onChange, className }: any) => (
           </option>
         ))}
       </select>
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
         <ChevronRight size={14} className="rotate-90" />
       </div>
     </div>

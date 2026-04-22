@@ -172,9 +172,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
-        <div className="w-12 h-12 border-4 border-gray-100 border-t-ocean-primary rounded-full animate-spin" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">Inventaire en cours...</p>
+      <div className="min-h-screen bg-surface-subtle flex flex-col items-center justify-center gap-4">
+        <div className="w-12 h-12 border-4 border-border-default border-t-ocean-primary rounded-full animate-spin" />
+        <p className="text-label font-black uppercase tracking-widest text-text-muted">Inventaire en cours...</p>
       </div>
     );
   }
@@ -184,9 +184,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
   const currentDepot = depots.find(d => d.id === (stock.depotId || stock.depot_id));
 
   return (
-    <div className="h-screen bg-gray-50 max-w-[480px] mx-auto pb-32 relative font-sans overflow-y-auto no-scrollbar scroll-smooth">
+    <div className="h-screen bg-surface-subtle max-w-[480px] mx-auto pb-32 relative font-sans overflow-y-auto no-scrollbar scroll-smooth">
       {/* Header */}
-      <header className="bg-ocean-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-[100]">
+      <header className="bg-brand-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-[100]">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl" />
         <div className="flex items-center justify-between mb-6">
           <button onClick={onBack} className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-white">
@@ -203,7 +203,7 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
               (daysToExpiry !== null && daysToExpiry < 15) ? "bg-orange-500" :
               "bg-green-500"
             )} />
-            <span className="text-[9px] font-black uppercase tracking-widest">
+            <span className="text-micro font-black uppercase tracking-widest">
               {stock.status === 'expired' ? 'Expiré' : 
                (daysToExpiry !== null && daysToExpiry < 15) ? 'Alerte DLC' : 'Disponible'}
             </span>
@@ -215,10 +215,10 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
             {stock.productName || stock.product}
           </h1>
           <div className="flex items-center gap-3">
-            <span className="px-2 py-1 bg-white/10 rounded-lg text-white/60 font-mono text-[10px] border border-white/5 tracking-wider">
+            <span className="px-2 py-1 bg-white/10 rounded-lg text-white/60 font-mono text-label border border-white/5 tracking-wider">
               {stock.sku || 'NO-SKU'}
             </span>
-            <span className="text-white/40 text-[9px] font-bold uppercase tracking-[0.2em]">
+            <span className="text-white/40 text-micro font-bold uppercase tracking-[0.2em]">
               {stock.category}
             </span>
           </div>
@@ -238,7 +238,7 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
         {/* Card 1: Stock */}
         <InfoCard 
           title="État du Stock" 
-          icon={<Package size={18} className="text-ocean-primary" />}
+          icon={<Package size={18} className="text-brand" />}
         >
           {(() => {
             const unitsCount = Number(stock.units || stock.quantity || 0);
@@ -257,43 +257,43 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
             return (
               <div className="flex flex-col gap-3">
                 <div>
-                   <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mb-1">Inventaire HUB</p>
+                   <p className="text-label font-bold text-text-muted uppercase tracking-widest mb-1">Inventaire HUB</p>
                    <div className="flex flex-col">
-                     <h3 className="text-2xl font-black text-ocean-dark uppercase leading-none">
+                     <h3 className="text-2xl font-black text-brand-dark uppercase leading-none">
                        {stock.stockType === 'bulk' ? `${displayTotalWeight.toLocaleString()} KG` : `${unitsCount.toLocaleString()} CTN`}
                      </h3>
                      <div className="flex flex-col mt-1.5 gap-0.5">
                        {stock.stockType === 'unitized' && displayTotalWeight > 0 && (
-                         <span className="text-[11px] font-black text-slate-400 uppercase tracking-tighter">
+                         <span className="text-caption font-black text-text-muted uppercase tracking-tighter">
                            {displayTotalWeight.toLocaleString()} KG TOTAL
                          </span>
                        )}
                        {stock.stockType === 'bulk' && (
-                         <span className="text-[10px] font-bold text-slate-400 uppercase italic">
+                         <span className="text-label font-bold text-text-muted uppercase italic">
                            {stock.container ? `Origine: ${stock.container}` : "1 Container"}
                          </span>
                        )}
                        {stock.stockType === 'unitized' && uWeight > 0 && (
-                         <span className="text-[9px] font-bold text-slate-300 italic">
+                         <span className="text-micro font-bold text-text-muted italic">
                            Conditionnement: {uWeight} kg/carton
                          </span>
                        )}
                      </div>
                    </div>
                    <div className="mt-4 pt-3 border-t border-slate-50">
-                      <p className="text-[12px] font-black text-ocean-primary flex items-baseline gap-1.5">
-                        <span className="text-[8px] text-slate-300 uppercase tracking-widest">Valeur Stock:</span>
+                      <p className="text-caption font-black text-brand flex items-baseline gap-1.5">
+                        <span className="text-micro text-text-muted uppercase tracking-widest">Valeur Stock:</span>
                         {displayFinValue()}
                       </p>
                    </div>
                 </div>
-                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
+                <div className="w-full h-1.5 bg-surface-page rounded-full overflow-hidden mt-1">
                    <div 
-                     className="h-full bg-ocean-primary transition-all duration-500" 
+                     className="h-full bg-brand transition-all duration-500" 
                      style={{ width: `${Math.min(100, (unitsCount / (stock.initialQuantity || unitsCount || 1)) * 100)}%` }} 
                   />
                 </div>
-                <p className="text-[8px] font-black text-gray-300 uppercase italic">
+                <p className="text-micro font-black text-text-muted uppercase italic">
                   Seuil d'alerte: {stock.threshold || stock.min_threshold || 10}%
                 </p>
               </div>
@@ -307,9 +307,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
           icon={<Calendar size={18} className="text-orange-500" />}
         >
           <div className="flex flex-col gap-2">
-            <div className="flex justify-between items-center bg-gray-50 p-2 rounded-xl">
-               <span className="text-[8px] font-black text-gray-300 uppercase">Expire le</span>
-               <span className="text-[9px] font-black text-ocean-dark">{stock.expirationDate || 'N/A'}</span>
+            <div className="flex justify-between items-center bg-surface-subtle p-2 rounded-xl">
+               <span className="text-micro font-black text-text-muted uppercase">Expire le</span>
+               <span className="text-micro font-black text-brand-dark">{stock.expirationDate || 'N/A'}</span>
             </div>
             <div className={cn(
               "px-3 py-2 rounded-xl text-center",
@@ -318,9 +318,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
               "bg-green-50 text-green-600"
             )}>
                <p className="text-[14px] font-black leading-none">{daysToExpiry ?? '?'}</p>
-               <p className="text-[7px] font-black uppercase tracking-tighter">jours restants</p>
+               <p className="text-micro font-black uppercase tracking-tighter">jours restants</p>
             </div>
-            <p className="text-[8px] font-bold text-gray-300 uppercase mt-1">Lot: {stock.lotNumber || '---'}</p>
+            <p className="text-micro font-bold text-text-muted uppercase mt-1">Lot: {stock.lotNumber || '---'}</p>
           </div>
         </InfoCard>
 
@@ -332,9 +332,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2 mb-1">
                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: currentDepot?.color || '#ccc' }} />
-               <span className="text-[10px] font-black text-ocean-dark uppercase truncate">{currentDepot?.name || 'PAD / TRANSIT'}</span>
+               <span className="text-label font-black text-brand-dark uppercase truncate">{currentDepot?.name || 'PAD / TRANSIT'}</span>
             </div>
-            <p className="text-[9px] font-bold text-gray-400 leading-tight">
+            <p className="text-micro font-bold text-text-muted leading-tight">
                {stock.location || 'Section Non Définie'}
             </p>
           </div>
@@ -347,12 +347,12 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
         >
           <div className="flex flex-col gap-2">
              <div className="flex items-center justify-between">
-                <span className="text-[8px] font-black text-gray-300 uppercase">Alertes Active</span>
-                <div className="w-8 h-4 bg-ocean-primary rounded-full relative">
+                <span className="text-micro font-black text-text-muted uppercase">Alertes Active</span>
+                <div className="w-8 h-4 bg-brand rounded-full relative">
                    <div className="w-3 h-3 bg-white rounded-full absolute right-0.5 top-0.5" />
                 </div>
              </div>
-             <p className="text-[8px] text-gray-400 font-medium italic mt-1">Email & SMS pour stock bas ou péremption.</p>
+             <p className="text-micro text-text-muted font-medium italic mt-1">Email & SMS pour stock bas ou péremption.</p>
           </div>
         </InfoCard>
       </section>
@@ -360,10 +360,10 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
       {/* History Timeline */}
       <section className="px-6 space-y-4">
         <div className="flex items-center justify-between">
-           <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-300">Journal des Mouvements</h3>
+           <h3 className="text-label font-black uppercase tracking-[0.2em] text-text-muted">Journal des Mouvements</h3>
            <button 
              onClick={() => setActiveModal('movement')}
-             className="px-2.5 py-1 bg-ocean-soft text-ocean-primary rounded-lg text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5"
+             className="px-2.5 py-1 bg-surface-subtle text-brand rounded-lg text-micro font-black uppercase tracking-widest flex items-center gap-1.5"
            >
               <Plus size={10} /> Nouveau
            </button>
@@ -371,14 +371,14 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
 
         <div className="bg-white/70 backdrop-blur-xl rounded-[32px] p-5 shadow-xl shadow-black/5 border border-white/50 min-h-[300px]">
            {movements.length === 0 ? (
-             <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-4 opacity-50 py-10">
+             <div className="h-full flex flex-col items-center justify-center text-text-muted gap-4 opacity-50 py-10">
                 <MessageSquare size={48} strokeWidth={1} />
-                <p className="text-[9px] font-black uppercase tracking-widest">Aucun mouvement enregistré</p>
+                <p className="text-micro font-black uppercase tracking-widest">Aucun mouvement enregistré</p>
              </div>
            ) : (
              <div className="space-y-6 relative">
                 {/* Vertical Line */}
-                <div className="absolute left-[13px] top-2 bottom-2 w-[1px] bg-gray-100" />
+                <div className="absolute left-[13px] top-2 bottom-2 w-[1px] bg-surface-page" />
                 
                 {movements.map((move, idx) => (
                   <div key={move.id} className="flex gap-4 relative z-10">
@@ -394,28 +394,28 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
                      </div>
                      <div className="flex-1 flex flex-col gap-1 pt-0.5">
                         <div className="flex justify-between items-start">
-                           <h4 className="text-[10px] font-black uppercase tracking-tight text-ocean-dark">
+                           <h4 className="text-label font-black uppercase tracking-tight text-brand-dark">
                              {move.type === 'entry' ? 'Réception' :
                               move.type === 'exit' ? 'Sortie' :
                               move.type === 'transfer' ? 'Transfert' : 'Ajustement'}
                            </h4>
                            <span className={cn(
-                             "text-[10px] font-black",
+                             "text-label font-black",
                              move.quantity > 0 && move.type === 'entry' ? "text-green-500" : 
-                             move.quantity > 0 && move.type === 'exit' ? "text-red-500" : "text-ocean-primary"
+                             move.quantity > 0 && move.type === 'exit' ? "text-red-500" : "text-brand"
                            )}>
                              {move.type === 'entry' ? '+' : '-'}{Math.abs(move.quantity)}
                            </span>
                         </div>
-                        <div className="flex items-center gap-2 text-[8px] text-gray-400 font-bold">
+                        <div className="flex items-center gap-2 text-micro text-text-muted font-bold">
                            <span className="flex items-center gap-1"><User size={8} /> {move.userName}</span>
                            <span>•</span>
                            <span>{move.timestamp?.toDate ? move.timestamp.toDate().toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Maintenant'}</span>
                         </div>
                         {(move.client || move.reason) && (
                            <div className="mt-1 flex flex-col gap-0.5">
-                              {move.client && <p className="text-[9px] text-ocean-primary font-black uppercase">Client: {move.client}</p>}
-                              <p className="text-[9px] text-gray-500 font-medium italic leading-relaxed">{move.reason}{move.notes ? `: ${move.notes}` : ''}</p>
+                              {move.client && <p className="text-micro text-brand font-black uppercase">Client: {move.client}</p>}
+                              <p className="text-micro text-text-secondary font-medium italic leading-relaxed">{move.reason}{move.notes ? `: ${move.notes}` : ''}</p>
                            </div>
                         )}
                      </div>
@@ -431,7 +431,7 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setActiveModal('movement')}
-        className="fixed bottom-24 right-6 w-16 h-16 bg-ocean-primary text-white rounded-full shadow-2xl flex items-center justify-center z-[160] border-4 border-white"
+        className="fixed bottom-24 right-6 w-16 h-16 bg-brand text-white rounded-full shadow-2xl flex items-center justify-center z-[160] border-4 border-white"
       >
         <TrendingUp size={32} />
       </motion.button>
@@ -470,8 +470,8 @@ const ActionButton = ({ icon, label, onClick, variant = 'default' }: any) => (
   <button 
     onClick={onClick}
     className={cn(
-      "shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all",
-      variant === 'danger' ? "bg-red-500 text-white" : "bg-white text-ocean-dark shadow-xl"
+      "shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-label font-black uppercase tracking-widest transition-all",
+      variant === 'danger' ? "bg-red-500 text-white" : "bg-white text-brand-dark shadow-xl"
     )}
   >
     {icon}
@@ -485,7 +485,7 @@ const InfoCard = ({ title, icon, children }: { title: string, icon: React.ReactN
        <div className="w-7 h-7 rounded-lg bg-white/50 flex items-center justify-center border border-white/50">
          {React.cloneElement(icon as React.ReactElement, { size: 14 } as any)}
        </div>
-       <h3 className="text-[8px] font-black text-gray-300 uppercase tracking-widest">{title}</h3>
+       <h3 className="text-micro font-black text-text-muted uppercase tracking-widest">{title}</h3>
     </div>
     {children}
   </div>
@@ -508,8 +508,8 @@ const ModalWrapper = ({ children, onClose, title }: { children: React.ReactNode,
       className="w-full max-w-[480px] bg-white rounded-t-[40px] p-8 pb-12 relative z-[1010] shadow-2xl"
     >
       <div className="flex items-center justify-between mb-8">
-         <h2 className="text-xl font-black text-ocean-dark uppercase tracking-tighter">{title}</h2>
-         <button onClick={onClose} className="w-10 h-10 rounded-full bg-gray-50 flex items-center justify-center text-gray-400">
+         <h2 className="text-xl font-black text-brand-dark uppercase tracking-tighter">{title}</h2>
+         <button onClick={onClose} className="w-10 h-10 rounded-full bg-surface-subtle flex items-center justify-center text-text-muted">
            <X size={20} />
          </button>
       </div>
@@ -635,15 +635,15 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
 
   return (
     <div className="space-y-6 max-h-[70vh] overflow-y-auto no-scrollbar pt-2 pb-6 px-1">
-      <div className="bg-white rounded-[32px] p-6 border border-gray-100 shadow-sm space-y-6">
-        <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl">
+      <div className="bg-white rounded-[32px] p-6 border border-border-default shadow-sm space-y-6">
+        <div className="flex gap-2 p-1 bg-surface-page rounded-2xl">
           <button 
             onClick={() => setStockType('unitized')}
-            className={cn("flex-1 py-3 text-[10px] font-black uppercase rounded-xl transition-all", stockType === 'unitized' ? "bg-white text-ocean-dark shadow-sm" : "text-gray-400")}
+            className={cn("flex-1 py-3 text-label font-black uppercase rounded-xl transition-all", stockType === 'unitized' ? "bg-white text-brand-dark shadow-sm" : "text-text-muted")}
           >Unitisé (Cartons)</button>
           <button 
             onClick={() => setStockType('bulk')}
-            className={cn("flex-1 py-3 text-[10px] font-black uppercase rounded-xl transition-all", stockType === 'bulk' ? "bg-white text-ocean-dark shadow-sm" : "text-gray-400")}
+            className={cn("flex-1 py-3 text-label font-black uppercase rounded-xl transition-all", stockType === 'bulk' ? "bg-white text-brand-dark shadow-sm" : "text-text-muted")}
           >Vrac (Kg)</button>
         </div>
 
@@ -664,19 +664,19 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
         )}
 
         <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase text-gray-300 tracking-widest px-1">Coût d'Achat & Imputation</label>
+          <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Coût d'Achat & Imputation</label>
           <div className="flex gap-2">
             <input 
               type="number"
               value={costPrice}
               onChange={e => setCostPrice(e.target.value)}
-              className="flex-1 bg-gray-50 border border-transparent rounded-2xl p-4 text-sm font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all"
+              className="flex-1 bg-surface-subtle border border-transparent rounded-2xl p-4 text-sm font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all"
               placeholder="Ex: 45000"
             />
             <select 
               value={costPer} 
               onChange={e => setCostPer(e.target.value as any)}
-              className="w-20 bg-gray-50 border border-transparent rounded-2xl p-4 text-[10px] font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all"
+              className="w-20 bg-surface-subtle border border-transparent rounded-2xl p-4 text-label font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all"
             >
               <option value="unit">/u</option>
               <option value="kg">/kg</option>
@@ -684,7 +684,7 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
             <select 
               value={currency} 
               onChange={e => setCurrency(e.target.value)}
-              className="w-24 bg-gray-50 border border-transparent rounded-2xl p-4 text-[10px] font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all"
+              className="w-24 bg-surface-subtle border border-transparent rounded-2xl p-4 text-label font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all"
             >
               <option value="XOF">XOF</option>
               <option value="EUR">EUR</option>
@@ -715,7 +715,7 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
           onClick={handleSave} 
           className={cn(
             "w-full py-6 rounded-3xl font-black uppercase tracking-widest text-xs transition-all",
-            (!hasChanges || loading) ? "bg-gray-100 text-gray-400" : "bg-ocean-primary text-white shadow-2xl shadow-blue-500/30 active:scale-95"
+            (!hasChanges || loading) ? "bg-surface-page text-text-muted" : "bg-brand text-white shadow-2xl shadow-blue-500/30 active:scale-95"
           )}
         >
           {loading ? 'Traitement en cours...' : 'Mettre à jour le Stock'}
@@ -1012,14 +1012,14 @@ const MoveStockForm = ({ stock, depots, docRef, onCancel }: { stock: StockItem, 
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 bg-gray-50 p-2 rounded-2xl">
+      <div className="grid grid-cols-2 gap-4 bg-surface-subtle p-2 rounded-2xl">
         <button 
           onClick={() => setMoveType('all')}
-          className={cn("py-3 rounded-xl text-[9px] font-black uppercase transition-all", moveType === 'all' ? "bg-white text-ocean-primary shadow-sm" : "text-gray-400")}
+          className={cn("py-3 rounded-xl text-micro font-black uppercase transition-all", moveType === 'all' ? "bg-white text-brand shadow-sm" : "text-text-muted")}
         >Tout déplacer</button>
         <button 
           onClick={() => setMoveType('partial')}
-          className={cn("py-3 rounded-xl text-[9px] font-black uppercase transition-all", moveType === 'partial' ? "bg-white text-ocean-primary shadow-sm" : "text-gray-400")}
+          className={cn("py-3 rounded-xl text-micro font-black uppercase transition-all", moveType === 'partial' ? "bg-white text-brand shadow-sm" : "text-text-muted")}
         >Fractionner</button>
       </div>
 
@@ -1035,7 +1035,7 @@ const MoveStockForm = ({ stock, depots, docRef, onCancel }: { stock: StockItem, 
         />
         
         <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 space-y-4">
-           <h4 className="text-[10px] font-black text-ocean-primary uppercase tracking-widest flex items-center gap-2">
+           <h4 className="text-label font-black text-brand uppercase tracking-widest flex items-center gap-2">
              <Truck size={14} /> Logistique Transport
            </h4>
            <FormInput label="Nom Chauffeur" value={driverName} onChange={setDriverName} placeholder="Nom & Prénom" />
@@ -1049,7 +1049,7 @@ const MoveStockForm = ({ stock, depots, docRef, onCancel }: { stock: StockItem, 
       <button 
         disabled={loading}
         onClick={handleMove}
-        className="w-full py-6 bg-ocean-primary text-white rounded-[24px] font-black uppercase text-xs shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3"
+        className="w-full py-6 bg-brand text-white rounded-[24px] font-black uppercase text-xs shadow-2xl shadow-blue-500/30 flex items-center justify-center gap-3"
       >
         <Printer size={18} />
         {loading ? 'Traitement...' : 'Transférer & Générer Bon'}
@@ -1104,8 +1104,8 @@ const LogsView = ({ movements, onCancel }: { movements: StockMovement[], onCance
                  key={f}
                  onClick={() => setFilter(f as any)}
                  className={cn(
-                   "flex-none px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all",
-                   filter === f ? "bg-ocean-primary text-white border-ocean-primary" : "bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100"
+                   "flex-none px-4 py-2 rounded-xl text-micro font-black uppercase tracking-widest border transition-all",
+                   filter === f ? "bg-brand text-white border-brand" : "bg-surface-subtle text-text-muted border-transparent hover:bg-surface-page"
                  )}
                >
                  {f === 'all' ? 'Tous Types' : f === 'entry' ? 'Entrées' : f === 'exit' ? 'Sorties' : f === 'transfer' ? 'Transferts' : 'Éditions'}
@@ -1126,8 +1126,8 @@ const LogsView = ({ movements, onCancel }: { movements: StockMovement[], onCance
                  key={df.value}
                  onClick={() => setDateFilter(df.value as any)}
                  className={cn(
-                   "flex-none px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider border transition-all",
-                   dateFilter === df.value ? "bg-ocean-soft text-ocean-primary border-ocean-primary/20" : "bg-white text-gray-300 border-gray-100"
+                   "flex-none px-3 py-1.5 rounded-lg text-micro font-black uppercase tracking-wider border transition-all",
+                   dateFilter === df.value ? "bg-surface-subtle text-brand border-brand/20" : "bg-white text-text-muted border-border-default"
                  )}
                >
                  {df.label}
@@ -1141,9 +1141,9 @@ const LogsView = ({ movements, onCancel }: { movements: StockMovement[], onCance
                value={search}
                onChange={e => setSearch(e.target.value)}
                placeholder="Rechercher agent ou raison..."
-               className="w-full bg-gray-50 border-none rounded-2xl p-4 pl-12 text-sm font-medium text-ocean-dark focus:bg-white focus:ring-2 focus:ring-ocean-primary/10 outline-none transition-all"
+               className="w-full bg-surface-subtle border-none rounded-2xl p-4 pl-12 text-sm font-medium text-brand-dark focus:bg-white focus:ring-2 focus:ring-brand/10 outline-none transition-all"
              />
-             <Settings size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" />
+             <Settings size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
           </div>
        </div>
 
@@ -1151,11 +1151,11 @@ const LogsView = ({ movements, onCancel }: { movements: StockMovement[], onCance
           {filtered.length === 0 ? (
              <div className="py-20 text-center opacity-30">
                 <Clipboard size={48} className="mx-auto mb-4" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Aucun log correspondant</p>
+                <p className="text-label font-black uppercase tracking-widest">Aucun log correspondant</p>
              </div>
           ) : (
              filtered.map(move => (
-               <div key={move.id} className="p-4 bg-gray-50 rounded-2xl flex items-start gap-4 border border-gray-100/50">
+               <div key={move.id} className="p-4 bg-surface-subtle rounded-2xl flex items-start gap-4 border border-border-default/50">
                   <div className={cn(
                      "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-transform",
                      move.type === 'entry' ? "bg-green-500 text-white" :
@@ -1168,21 +1168,21 @@ const LogsView = ({ movements, onCancel }: { movements: StockMovement[], onCance
                   </div>
                   <div className="flex-1 flex flex-col gap-0.5">
                      <div className="flex justify-between items-start">
-                        <h4 className="text-[10px] font-black uppercase text-ocean-dark tracking-tight">
+                        <h4 className="text-label font-black uppercase text-brand-dark tracking-tight">
                           {move.userName}
                         </h4>
                         <span className={cn(
-                           "text-[10px] font-black",
+                           "text-label font-black",
                            move.type === 'entry' ? "text-green-600" : move.type === 'exit' ? "text-red-600" : "text-blue-600"
                         )}>
                            {move.quantity !== 0 ? (move.type === 'entry' ? '+' : '-') : ''}
                            {move.quantity !== 0 ? Math.abs(move.quantity) : '--'}
                         </span>
                      </div>
-                     <p className="text-[10px] text-gray-500 font-medium leading-relaxed">{move.reason}</p>
-                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-100">
-                        <Clock size={10} className="text-gray-300" />
-                        <span className="text-[8px] text-gray-400 font-bold uppercase tracking-widest">
+                     <p className="text-label text-text-secondary font-medium leading-relaxed">{move.reason}</p>
+                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border-default">
+                        <Clock size={10} className="text-text-muted" />
+                        <span className="text-micro text-text-muted font-bold uppercase tracking-widest">
                           {move.timestamp?.toDate?.()?.toLocaleString('fr-FR') || 'Date inconnue'}
                         </span>
                      </div>
@@ -1310,18 +1310,18 @@ const DeleteConfirm = ({ stock, docRef, onCancel, onBack }: { stock: StockItem, 
           <Trash2 size={28} />
         </div>
         <h3 className="text-lg font-black text-red-600 uppercase mb-1 leading-none tracking-tight">Supprimer ou Archiver</h3>
-        <p className="text-[9px] text-red-500/50 font-black uppercase tracking-[0.2em]">Gestion des stocks obsolètes</p>
+        <p className="text-micro text-red-500/50 font-black uppercase tracking-[0.2em]">Gestion des stocks obsolètes</p>
       </div>
 
       <div className="space-y-4">
         {/* Section ARCHIVE */}
-        <div className="bg-white/50 p-5 rounded-[24px] border border-slate-100 space-y-4">
+        <div className="bg-white/50 p-5 rounded-[24px] border border-border-default space-y-4">
           <div className="space-y-1.5 px-0.5">
-            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Raison de l'archivage</label>
+            <label className="text-micro font-black uppercase text-text-muted tracking-widest ml-1">Raison de l'archivage</label>
             <textarea 
               value={reason}
               onChange={e => setReason(e.target.value)}
-              className="w-full bg-white border border-slate-100 rounded-xl p-3 text-[11px] font-medium text-ocean-dark focus:ring-2 focus:ring-ocean-primary/5 outline-none transition-all resize-none"
+              className="w-full bg-white border border-border-default rounded-xl p-3 text-caption font-medium text-brand-dark focus:ring-2 focus:ring-brand/5 outline-none transition-all resize-none"
               rows={2}
               placeholder="Ex: DLC dépassée, erreur de saisie..."
             />
@@ -1330,8 +1330,8 @@ const DeleteConfirm = ({ stock, docRef, onCancel, onBack }: { stock: StockItem, 
             disabled={loading || reason.length < 5}
             onClick={handleArchive} 
             className={cn(
-              "w-full py-4 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all",
-              reason.length >= 5 ? "bg-ocean-primary text-white shadow-lg shadow-ocean-primary/20" : "bg-slate-100 text-slate-300"
+              "w-full py-4 rounded-xl font-black uppercase tracking-widest text-label transition-all",
+              reason.length >= 5 ? "bg-brand text-white shadow-lg shadow-brand/20" : "bg-surface-subtle text-text-muted"
             )}
           >
             {loading ? '...' : 'Archiver Lot'}
@@ -1339,20 +1339,20 @@ const DeleteConfirm = ({ stock, docRef, onCancel, onBack }: { stock: StockItem, 
         </div>
 
         <div className="flex items-center gap-3 py-1">
-           <div className="flex-1 h-[1px] bg-slate-100" />
-           <span className="text-[8px] font-black text-slate-300 uppercase tracking-[0.3em]">OU DÉFINITIF</span>
-           <div className="flex-1 h-[1px] bg-slate-100" />
+           <div className="flex-1 h-[1px] bg-surface-subtle" />
+           <span className="text-micro font-black text-text-muted uppercase tracking-[0.3em]">OU DÉFINITIF</span>
+           <div className="flex-1 h-[1px] bg-surface-subtle" />
         </div>
 
         {/* Section PERMANENT DELETE */}
         <div className="bg-red-50/30 p-5 rounded-[24px] border border-red-100/50 space-y-4">
            <div className="space-y-1.5 px-0.5">
-             <label className="text-[9px] font-black uppercase text-red-400 tracking-widest ml-1">Type "SUPPRIMER" pour valider</label>
+             <label className="text-micro font-black uppercase text-red-400 tracking-widest ml-1">Type "SUPPRIMER" pour valider</label>
              <input 
                type="text"
                value={deleteInput}
                onChange={e => setDeleteInput(e.target.value.toUpperCase())}
-               className="w-full bg-white border border-red-100/50 rounded-xl p-3 text-center text-[11px] font-black text-red-600 outline-none focus:ring-4 focus:ring-red-500/5 transition-all placeholder:text-red-200"
+               className="w-full bg-white border border-red-100/50 rounded-xl p-3 text-center text-caption font-black text-red-600 outline-none focus:ring-4 focus:ring-red-500/5 transition-all placeholder:text-red-200"
                placeholder="SUPPRIMER"
              />
            </div>
@@ -1360,7 +1360,7 @@ const DeleteConfirm = ({ stock, docRef, onCancel, onBack }: { stock: StockItem, 
              disabled={loading || deleteInput !== 'SUPPRIMER'}
              onClick={handlePermanentDelete} 
              className={cn(
-               "w-full py-4 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all",
+               "w-full py-4 rounded-xl font-black uppercase tracking-widest text-label transition-all",
                deleteInput === 'SUPPRIMER' ? "bg-red-600 text-white shadow-lg shadow-red-500/20" : "bg-white text-red-200 border border-red-50"
              )}
            >
@@ -1369,20 +1369,20 @@ const DeleteConfirm = ({ stock, docRef, onCancel, onBack }: { stock: StockItem, 
         </div>
       </div>
 
-      <button onClick={onCancel} className="w-full py-2 text-slate-300 font-black uppercase text-[10px] tracking-widest">Retour</button>
+      <button onClick={onCancel} className="w-full py-2 text-text-muted font-black uppercase text-label tracking-widest">Retour</button>
     </div>
   );
 };
 
 const FormInput = ({ label, value, onChange, placeholder, type = "text" }: any) => (
   <div className="space-y-1">
-    <label className="text-[9px] font-black uppercase text-gray-300 tracking-[0.15em] px-1">{label}</label>
+    <label className="text-micro font-black uppercase text-text-muted tracking-[0.15em] px-1">{label}</label>
     <div className="relative">
       <input 
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-50/50 border border-gray-100 rounded-xl p-3.5 text-xs font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all"
+        className="w-full bg-gray-50/50 border border-border-default rounded-xl p-3.5 text-xs font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all"
         placeholder={placeholder}
       />
     </div>
@@ -1391,12 +1391,12 @@ const FormInput = ({ label, value, onChange, placeholder, type = "text" }: any) 
 
 const FormSelect = ({ label, options, value, onChange }: any) => (
   <div className="space-y-1">
-    <label className="text-[9px] font-black uppercase text-gray-300 tracking-[0.15em] px-1">{label}</label>
+    <label className="text-micro font-black uppercase text-text-muted tracking-[0.15em] px-1">{label}</label>
     <div className="relative">
       <select 
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-50/50 border border-gray-100 rounded-xl p-3.5 text-xs font-black text-ocean-dark focus:bg-white focus:border-ocean-primary/20 outline-none transition-all appearance-none"
+        className="w-full bg-gray-50/50 border border-border-default rounded-xl p-3.5 text-xs font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all appearance-none"
       >
         <option value="" disabled>Choisir...</option>
         {options.map((opt: any) => (
@@ -1405,7 +1405,7 @@ const FormSelect = ({ label, options, value, onChange }: any) => (
           </option>
         ))}
       </select>
-      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-300">
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-text-muted">
          <Plus size={14} className="rotate-45" />
       </div>
     </div>

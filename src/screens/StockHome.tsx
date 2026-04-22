@@ -156,7 +156,7 @@ const StockCard = React.memo(({ id, container, product, cartons, status, aging_d
   const getStatusColorClass = (s: string) => {
     switch(s) {
       case 'quay_pad': return 'border-accent-gold/50';
-      case 'stored': return 'border-ocean-primary/50';
+      case 'stored': return 'border-brand/50';
       default: return 'border-success/50';
     }
   };
@@ -182,13 +182,13 @@ const StockCard = React.memo(({ id, container, product, cartons, status, aging_d
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-2 overflow-hidden">
           <span className="text-lg">{getProductIcon(product)}</span>
-          <h4 className="text-[11px] font-black text-ocean-dark truncate uppercase tracking-tight">
+          <h4 className="text-caption font-black text-brand-dark truncate uppercase tracking-tight">
             {product}
           </h4>
         </div>
         <div className={cn(
-          "px-2 py-0.5 rounded text-[7px] font-black tracking-widest",
-          isFefoUrgent ? "bg-red-500 text-white" : "bg-white/50 text-slate-500 border border-slate-100"
+          "px-2 py-0.5 rounded text-micro font-black tracking-widest",
+          isFefoUrgent ? "bg-red-500 text-white" : "bg-white/50 text-text-secondary border border-border-default"
         )}>
           {isFefoUrgent ? "⚠️ FEFO" : getStatusLabel(status)}
         </div>
@@ -197,17 +197,17 @@ const StockCard = React.memo(({ id, container, product, cartons, status, aging_d
       <div className="flex items-center justify-between">
         <div className="flex flex-col overflow-hidden">
            <div className="flex items-center gap-1.5">
-             <span className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-tight truncate">{container}</span>
+             <span className="text-micro font-mono font-bold text-text-muted uppercase tracking-tight truncate">{container}</span>
              {sku && (
-               <span className="text-[7px] font-black bg-slate-100 text-slate-400 px-1 rounded truncate tracking-tighter">SKU: {sku}</span>
+               <span className="text-micro font-black bg-surface-subtle text-text-muted px-1 rounded truncate tracking-tighter">SKU: {sku}</span>
              )}
            </div>
-           <div className="flex items-center gap-1 text-[8px] font-black text-slate-300 uppercase tracking-widest mt-0.5">
-              <MapPin size={9} className="text-ocean-primary/40" /> {depot_name}
+           <div className="flex items-center gap-1 text-micro font-black text-text-muted uppercase tracking-widest mt-0.5">
+              <MapPin size={9} className="text-brand/40" /> {depot_name}
            </div>
         </div>
         {stockType === 'bulk' && (
-          <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-50 text-purple-500 rounded text-[7px] font-black uppercase">
+          <div className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-50 text-purple-500 rounded text-micro font-black uppercase">
             Vr
           </div>
         )}
@@ -215,32 +215,32 @@ const StockCard = React.memo(({ id, container, product, cartons, status, aging_d
 
       <div className="grid grid-cols-4 gap-2 border-t border-white/50 pt-2 mt-0.5">
         <div className="flex flex-col col-span-2">
-           <span className="text-[7px] font-black text-slate-300 uppercase tracking-wider">Inventaire Actuel</span>
+           <span className="text-micro font-black text-text-muted uppercase tracking-wider">Inventaire Actuel</span>
            <div className="flex flex-col">
-             <span className="text-[11px] font-black text-ocean-dark uppercase">
+             <span className="text-caption font-black text-brand-dark uppercase">
                {stockType === 'bulk' ? `${displayTotalWeight.toLocaleString()} KG` : `${unitsCount.toLocaleString()} CTN`}
              </span>
              {stockType === 'unitized' && displayTotalWeight > 0 && (
-               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">
+               <span className="text-micro font-bold text-text-muted uppercase tracking-tight">
                  {displayTotalWeight.toLocaleString()} KG TOTAL
                </span>
              )}
              {stockType === 'bulk' && (
-               <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight italic">
+               <span className="text-micro font-bold text-text-muted uppercase tracking-tight italic">
                  {container ? `Origine: ${container}` : "1 Container"}
                </span>
              )}
            </div>
         </div>
         <div className="flex flex-col">
-           <span className="text-[7px] font-black text-slate-300 uppercase tracking-wider">Âge</span>
-           <span className="text-[10px] font-black text-ocean-dark uppercase">{aging_days}j</span>
+           <span className="text-micro font-black text-text-muted uppercase tracking-wider">Âge</span>
+           <span className="text-label font-black text-brand-dark uppercase">{aging_days}j</span>
         </div>
         <div className="flex flex-col items-end">
-           <span className="text-[7px] font-black text-slate-300 uppercase tracking-wider">Valeur</span>
+           <span className="text-micro font-black text-text-muted uppercase tracking-wider">Valeur</span>
            <span className={cn(
-             "text-[10px] font-black uppercase",
-             canSeeFinancials ? "text-ocean-primary" : "text-slate-300"
+             "text-label font-black uppercase",
+             canSeeFinancials ? "text-brand" : "text-text-muted"
            )}>
              {displayValue()}
            </span>
@@ -256,8 +256,8 @@ const SyncIndicator = () => {
   
   return (
     <div className="flex items-center gap-1.5 mt-0.5">
-       <div className="w-1 h-1 bg-[#4CAF50] rounded-full animate-pulse shadow-[0_0_5px_#4CAF50]" />
-       <span className="text-[7px] font-black text-white/40 uppercase tracking-widest leading-none">HUB • {lastSync}</span>
+       <div className="w-1 h-1 bg-status-success rounded-full animate-pulse shadow-md" />
+       <span className="text-micro font-black text-white/40 uppercase tracking-widest leading-none">HUB • {lastSync}</span>
     </div>
   );
 };
@@ -329,14 +329,14 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
 
 
   return (
-    <div className="h-full bg-gray-100 max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
+    <div className="h-full bg-surface-page max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
       
       {/* 1. HEADER FIXE */}
       <header className="flex-none h-[130px] bg-gradient-to-br from-ocean-dark to-ocean-primary p-4 rounded-b-xl flex flex-col justify-between shadow-xl overflow-hidden relative">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl p-6" />
         <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center gap-2">
-             <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center text-ocean-dark shadow-xl">
+             <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center text-brand-dark shadow-xl">
                 <Package size={18} />
              </div>
              <div className="flex flex-col">
@@ -351,7 +351,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
             >
               <Bell className="text-white" size={16} />
               {unreadAlerts > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center border border-ocean-dark shadow-lg">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-micro font-black rounded-full flex items-center justify-center border border-brand-dark shadow-lg">
                   {unreadAlerts}
                 </span>
               )}
@@ -374,9 +374,9 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
           <button 
             onClick={() => setSelectedDepotId('all')}
             className={cn(
-              "flex-none px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+              "flex-none px-4 py-1.5 rounded-lg text-micro font-black uppercase tracking-widest transition-all",
               selectedDepotId === 'all' 
-                ? "bg-white text-ocean-dark shadow-xl" 
+                ? "bg-white text-brand-dark shadow-xl" 
                 : "bg-white/10 text-white border border-white/10"
             )}
           >
@@ -388,16 +388,16 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
               <button 
                 onClick={() => setSelectedDepotId(depot.id)}
                 className={cn(
-                  "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
+                  "px-4 py-1.5 rounded-lg text-micro font-black uppercase tracking-widest transition-all flex items-center gap-2",
                   selectedDepotId === depot.id 
-                    ? "bg-white text-ocean-dark shadow-xl" 
+                    ? "bg-white text-brand-dark shadow-xl" 
                     : "bg-white/10 text-white border border-white/10"
                 )}
               >
                 {depot.name}
                 <span className={cn(
-                  "px-1.5 py-0.5 rounded text-[7px] font-black",
-                  selectedDepotId === depot.id ? "bg-ocean-dark text-white" : "bg-white/20 text-white"
+                  "px-1.5 py-0.5 rounded text-micro font-black",
+                  selectedDepotId === depot.id ? "bg-brand-dark text-white" : "bg-white/20 text-white"
                 )}>
                   {depot.current_load || 0}
                 </span>
@@ -405,7 +405,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
               {selectedDepotId === depot.id && (
                 <button 
                   onClick={() => onNavigate('depots')}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-ocean-primary text-white rounded-full flex items-center justify-center shadow-lg border border-white"
+                  className="absolute -top-1 -right-1 w-4 h-4 bg-brand text-white rounded-full flex items-center justify-center shadow-lg border border-white"
                 >
                   <MoreVertical size={8} />
                 </button>
@@ -429,30 +429,30 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2 bg-white/70 backdrop-blur-xl p-3 rounded-xl shadow-xl shadow-black/5 border border-white/50 flex items-center justify-between">
               <div>
-                <p className="text-[8px] font-black text-slate-300 uppercase tracking-[0.2em] mb-0.5">Valeur Totale</p>
-                <h2 className="text-lg font-black text-ocean-primary tracking-tighter">
-                  {(stats.totalValue / 1000000).toFixed(2)} <span className="text-[9px] font-black text-slate-400 uppercase">mfcfa</span>
+                <p className="text-micro font-black text-text-muted uppercase tracking-[0.2em] mb-0.5">Valeur Totale</p>
+                <h2 className="text-lg font-black text-brand tracking-tighter">
+                  {(stats.totalValue / 1000000).toFixed(2)} <span className="text-micro font-black text-text-muted uppercase">mfcfa</span>
                 </h2>
               </div>
-              <div className="w-8 h-8 bg-ocean-soft rounded-lg flex items-center justify-center text-ocean-primary shadow-inner">
+              <div className="w-8 h-8 bg-surface-subtle rounded-lg flex items-center justify-center text-brand shadow-inner">
                  <TrendingUp size={16} />
               </div>
             </div>
             
             <div className="bg-white/70 backdrop-blur-xl p-3 rounded-xl shadow-xl shadow-black/5 border border-white/50 flex flex-col justify-center min-h-[60px]">
-               <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest mb-0.5">Inventaire</p>
-               <h3 className="text-base font-black text-ocean-dark tracking-tighter">{stats.totalCartons} <span className="text-[7px] uppercase opacity-40">ctn</span></h3>
+               <p className="text-micro font-black text-text-muted uppercase tracking-widest mb-0.5">Inventaire</p>
+               <h3 className="text-base font-black text-brand-dark tracking-tighter">{stats.totalCartons} <span className="text-micro uppercase opacity-40">ctn</span></h3>
             </div>
 
             <div className={cn(
               "p-3 rounded-xl shadow-xl border flex flex-col justify-center min-h-[60px] backdrop-blur-xl transition-all",
-              stats.alerts > 0 ? "bg-red-500/5 border-red-200/50 text-red-600" : "bg-white/70 border-white/50 text-slate-300"
+              stats.alerts > 0 ? "bg-red-500/5 border-red-200/50 text-red-600" : "bg-white/70 border-white/50 text-text-muted"
             )}>
-               <p className="text-[8px] font-black uppercase tracking-widest mb-0.5">Alertes</p>
+               <p className="text-micro font-black uppercase tracking-widest mb-0.5">Alertes</p>
                <h3 className={cn(
                   "text-base font-black tracking-tighter",
-                  stats.alerts > 0 ? "text-red-500" : "text-slate-300"
-               )}>{stats.alerts} <span className="text-[7px] uppercase opacity-40">FEFO</span></h3>
+                  stats.alerts > 0 ? "text-red-500" : "text-text-muted"
+               )}>{stats.alerts} <span className="text-micro uppercase opacity-40">FEFO</span></h3>
             </div>
           </div>
         </section>
@@ -460,7 +460,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
         {/* SEARCH BAR */}
         <section className="px-4 mb-4">
            <div className="relative group">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-ocean-primary transition-colors">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-brand transition-colors">
                  <Search size={16} />
               </div>
               <input 
@@ -468,12 +468,12 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
                  placeholder="Chercher Container, SKU, Produit..."
                  value={searchQuery}
                  onChange={(e) => setSearchQuery(e.target.value)}
-                 className="w-full bg-white/70 backdrop-blur-xl border border-white/50 rounded-xl p-3.5 pl-12 text-[11px] font-black text-ocean-dark placeholder:text-slate-300 outline-none focus:ring-4 focus:ring-ocean-primary/5 transition-all shadow-lg shadow-black/5"
+                 className="w-full bg-white/70 backdrop-blur-xl border border-white/50 rounded-xl p-3.5 pl-12 text-caption font-black text-brand-dark placeholder:text-text-muted outline-none focus:ring-4 focus:ring-brand/5 transition-all shadow-lg shadow-black/5"
               />
               {searchQuery && (
                 <button 
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-ocean-dark"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-brand-dark"
                 >
                   <X size={14} />
                 </button>
@@ -484,25 +484,25 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
         {/* STOCK LIST */}
         <section className="px-4 space-y-3">
           <div className="flex items-center justify-between px-1">
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">
+             <h3 className="text-label font-black uppercase tracking-[0.2em] text-text-muted">
                {searchQuery ? `Résultats (${filteredStock.length})` : 'Inventaire Actif'}
              </h3>
           </div>
 
           <div className="space-y-2.5">
              {stockLoading ? (
-               <div className="py-20 flex flex-col items-center justify-center text-gray-300 gap-3">
-                 <div className="w-8 h-8 border-4 border-gray-100 border-t-ocean-primary rounded-full animate-spin" />
-                 <p className="text-[8px] font-black uppercase tracking-[0.3em]">Synchro...</p>
+               <div className="py-20 flex flex-col items-center justify-center text-text-muted gap-3">
+                 <div className="w-8 h-8 border-4 border-border-default border-t-ocean-primary rounded-full animate-spin" />
+                 <p className="text-micro font-black uppercase tracking-[0.3em]">Synchro...</p>
                </div>
              ) : filteredStock.length === 0 ? (
                <div className="py-20 flex flex-col items-center justify-center text-gray-200">
                  <Package size={64} strokeWidth={1} className="opacity-10 mb-4" />
-                 <h4 className="text-xs font-black text-gray-300 uppercase">
+                 <h4 className="text-xs font-black text-text-muted uppercase">
                    {searchQuery ? 'Aucun résultat' : 'Vide'}
                  </h4>
                  {!searchQuery && (
-                   <button onClick={() => onNavigate('AddStock')} className="mt-3 px-4 py-1.5 bg-gray-50 rounded-lg text-[8px] font-black text-ocean-dark uppercase tracking-widest">Initialiser</button>
+                   <button onClick={() => onNavigate('AddStock')} className="mt-3 px-4 py-1.5 bg-surface-subtle rounded-lg text-micro font-black text-brand-dark uppercase tracking-widest">Initialiser</button>
                  )}
                </div>
              ) : (
@@ -537,7 +537,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setShowNotifications(false)}
-              className="fixed inset-0 bg-ocean-dark/60 backdrop-blur-sm z-[200]"
+              className="fixed inset-0 bg-brand-dark/60 backdrop-blur-sm z-[200]"
             />
             <motion.div 
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
@@ -548,10 +548,10 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-12 h-1 bg-slate-200 rounded-full" />
                
                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-xl font-black text-ocean-dark tracking-tighter uppercase">Notifications</h2>
+                  <h2 className="text-xl font-black text-brand-dark tracking-tighter uppercase">Notifications</h2>
                   <button 
                     onClick={() => setShowNotifications(false)}
-                    className="w-10 h-10 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400"
+                    className="w-10 h-10 bg-surface-subtle rounded-2xl flex items-center justify-center text-text-muted"
                   >
                     <X size={20} />
                   </button>
@@ -559,9 +559,9 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
 
                <div className="flex-1 overflow-y-auto space-y-4 no-scrollbar pb-10">
                   {alerts.length === 0 ? (
-                    <div className="py-20 flex flex-col items-center justify-center text-slate-300">
+                    <div className="py-20 flex flex-col items-center justify-center text-text-muted">
                       <Bell size={64} strokeWidth={1} className="opacity-20 mb-4" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">Aucune alerte</p>
+                      <p className="text-label font-black uppercase tracking-widest">Aucune alerte</p>
                     </div>
                   ) : (
                     alerts.map(alert => (
@@ -574,19 +574,19 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
                         }}
                         className={cn(
                           "w-full p-5 rounded-3xl border text-left flex items-start gap-4 transition-all",
-                          alert.read ? "bg-white border-slate-100" : "bg-blue-50/50 border-blue-100"
+                          alert.read ? "bg-white border-border-default" : "bg-blue-50/50 border-blue-100"
                         )}
                       >
                          <div className={cn(
                            "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
-                           alert.severity === 'critical' ? "bg-red-100 text-red-600" : "bg-ocean-soft text-ocean-primary"
+                           alert.severity === 'critical' ? "bg-red-100 text-red-600" : "bg-surface-subtle text-brand"
                          )}>
                             {alert.severity === 'critical' ? <AlertCircle size={24} /> : <Triangle size={20} />}
                          </div>
                          <div className="space-y-1">
-                            <h4 className="text-[13px] font-black text-ocean-dark leading-tight">{alert.title}</h4>
-                            <p className="text-[11px] font-medium text-slate-500 line-clamp-2">{alert.message}</p>
-                            <span className="text-[9px] font-bold text-slate-300 uppercase block mt-1">
+                            <h4 className="text-body font-black text-brand-dark leading-tight">{alert.title}</h4>
+                            <p className="text-caption font-medium text-text-secondary line-clamp-2">{alert.message}</p>
+                            <span className="text-micro font-bold text-text-muted uppercase block mt-1">
                                {alert.timestamp?.toDate ? new Date(alert.timestamp.toDate()).toLocaleString('fr-FR') : 'Date inconnue'}
                             </span>
                          </div>
@@ -597,7 +597,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
 
                <button 
                  onClick={() => onNavigate('Notifications')}
-                 className="w-full py-5 bg-ocean-primary text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-ocean-primary/20"
+                 className="w-full py-5 bg-brand text-white rounded-3xl font-black uppercase text-label tracking-widest shadow-xl shadow-brand/20"
                >
                  Voir tout l'historique
                </button>
@@ -611,7 +611,7 @@ export const StockHome = ({ onNavigate, onSelectStock }: { onNavigate: (screen: 
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => onNavigate('AddStock')}
-        className="fixed bottom-24 right-6 w-16 h-16 bg-ocean-primary text-white rounded-full shadow-2xl shadow-blue-500/40 flex items-center justify-center z-[160] border-4 border-white"
+        className="fixed bottom-24 right-6 w-16 h-16 bg-brand text-white rounded-full shadow-2xl shadow-blue-500/40 flex items-center justify-center z-[160] border-4 border-white"
       >
         <Plus size={32} strokeWidth={3} />
       </motion.button>
