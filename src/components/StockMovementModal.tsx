@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { createMovement } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { 
   doc, 
@@ -57,24 +58,19 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
   const [loading, setLoading] = useState(false);
 
   const currentDepot = useMemo(() => {
-    return depots.find(d => d.id === (stock.depotId || stock.depot_id));
+    return depots.find(d => d.id === stock.depotId);
   }, [depots, stock]);
 
   const availableDepots = useMemo(() => {
-    return depots.filter(d => d.id !== (stock.depotId || stock.depot_id));
+    return depots.filter(d => d.id !== stock.depotId);
   }, [depots, stock]);
 
   const isValid = useMemo(() => {
     const qty = parseInt(quantity);
     if (isNaN(qty) || qty <= 0) return false;
-    
-    if (mode === 'exit' || mode === 'transfer') {
-      if (qty > (stock.quantity || stock.cartons || 0)) return false;
-    }
-    
+    if ((mode === 'exit' || mode === 'transfer') && qty > stock.quantity) return false;
     if (mode === 'transfer' && !targetDepotId) return false;
     if (mode === 'exit' && !client) return false;
-    
     return true;
   }, [mode, quantity, targetDepotId, client, stock]);
 
@@ -83,144 +79,127 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
     setLoading(true);
 
     try {
-      const amount = parseInt(quantity);
-      const sourceDepotId = stock.depotId || stock.depot_id || '';
-      const userName = auth.currentUser?.displayName || 'Agent DEPOTEK';
-      const userId = auth.currentUser?.uid || 'anon';
-      
-      const unitValue = stock.unitPrice || (stock.cost_basis ? (stock.cost_basis / (stock.quantity || 1)) : 0);
-      const valDelta = amount * unitValue;
+      const amount     = parseInt(quantity);
+      const sourceDepotId = stock.depotId;
+      const userName   = auth.currentUser?.displayName || 'Agent DEPOTEK';
+      const userId     = auth.currentUser?.uid || 'anon';
+
+      // costPrice per unit; fall back to proportional calculation from costBasis
+      const unitValue  = stock.costPrice ?? (stock.quantity > 0 ? stock.costBasis / stock.quantity : 0);
+      const valDelta   = amount * unitValue;
+      const currentQty = stock.quantity;
 
       await runTransaction(db, async (transaction) => {
         const sourceStockRef = docRef || doc(db, 'depots', sourceDepotId, 'stock', stock.id);
-        const sourceDepotRef = sourceDepotId ? doc(db, 'depots', sourceDepotId) : null;
-        const statsRef = doc(db, 'stats', 'global');
-        
-        const currentQty = stock.quantity || stock.cartons || 0;
+        const sourceDepotRef = doc(db, 'depots', sourceDepotId);
+        const statsRef       = doc(db, 'stats', 'global');
 
-        // 1. UPDATE SOURCE STOCK
-        if (mode === 'exit' || mode === 'transfer') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(-amount),
-            cartons: increment(-amount),
-            cost_basis: increment(-valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(-amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } else if (mode === 'entry') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(amount),
-            cartons: increment(amount),
-            cost_basis: increment(valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } else if (mode === 'adjustment') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(amount),
-            cartons: increment(amount),
-            cost_basis: increment(valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        }
+        // 1. UPDATE SOURCE STOCK — canonical fields only, no cartons alias
+        const isDebit = mode === 'exit' || mode === 'transfer';
+        const qtyDelta = isDebit ? -amount : amount;
+        const costDelta = isDebit ? -valDelta : valDelta;
 
-        // 2. CREATE LOGS & MOVEMENTS
-        const movementRef = doc(collection(sourceStockRef, 'movements'));
-        transaction.set(movementRef, {
+        transaction.update(sourceStockRef, {
+          quantity:   increment(qtyDelta),
+          costBasis:  increment(costDelta),
+          updatedAt:  serverTimestamp(),
+        });
+        transaction.update(sourceDepotRef, {
+          current_load: increment(qtyDelta),
+          updatedAt: serverTimestamp(),
+        });
+
+        // 2. MOVEMENT LOG — single subcollection path
+        createMovement(transaction, sourceStockRef, {
           type: mode,
           quantity: amount,
           previousQty: currentQty,
-          newQty: (mode === 'exit' || mode === 'transfer') ? currentQty - amount : currentQty + amount,
+          newQty: currentQty + qtyDelta,
           reason,
-          client: mode === 'exit' ? client : null,
-          targetDepotId: mode === 'transfer' ? targetDepotId : null,
-          notes,
+          client: mode === 'exit' ? client : undefined,
+          targetDepotId: mode === 'transfer' ? targetDepotId : undefined,
+          notes: notes || undefined,
           userId,
           userName,
-          timestamp: serverTimestamp()
         });
 
-        // 3. HANDLE TRANSFER DESTINATION
+        // 3. TRANSFER DESTINATION
         if (mode === 'transfer' && targetDepotId) {
           const destDepotRef = doc(db, 'depots', targetDepotId);
-          const targetDepot = depots.find(d => d.id === targetDepotId);
-          
-          // Check if same product exists in target depot via SKU
+
+          // Merge into existing lot if same SKU exists at destination
           const destStockQuery = query(
             collection(db, 'depots', targetDepotId, 'stock'),
-            where('sku', '==', stock.sku || 'N/A')
+            where('sku', '==', stock.sku || 'N/A'),
           );
           const destStockSnap = await getDocs(destStockQuery);
-          
+
           if (!destStockSnap.empty) {
-            // Merge into existing lot if SKU matches
             const existingLotRef = destStockSnap.docs[0].ref;
             transaction.update(existingLotRef, {
-              quantity: increment(amount),
-              cartons: increment(amount),
-              cost_basis: increment(valDelta),
-              updatedAt: serverTimestamp()
+              quantity:  increment(amount),
+              costBasis: increment(valDelta),
+              updatedAt: serverTimestamp(),
             });
-            
-            // Add movement record to destination lot
-            const destMovementRef = doc(collection(existingLotRef, 'movements'));
-            transaction.set(destMovementRef, {
-              type: 'transfer_in',
+            createMovement(transaction, existingLotRef, {
+              type: 'transfer',
               quantity: amount,
-              sourceDepotId: sourceDepotId,
+              previousQty: 0,
+              newQty: amount,
               reason: `Transfert depuis ${currentDepot?.name}`,
               userId,
               userName,
-              timestamp: serverTimestamp()
             });
           } else {
-            // Create new lot in target depot
+            // New lot at destination — canonical fields only, no spread of deprecated aliases
             const newLotRef = doc(collection(db, 'depots', targetDepotId, 'stock'));
+            const transferWeight = stock.totalWeightKg > 0
+              ? (stock.totalWeightKg / stock.quantity) * amount
+              : 0;
             transaction.set(newLotRef, {
-              ...stock,
-              id: newLotRef.id,
-              quantity: amount,
-              cartons: amount,
-              depotId: targetDepotId,
-              depot_id: targetDepotId,
-              cost_basis: valDelta,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              createdBy: userId
+              id:           newLotRef.id,
+              sku:          stock.sku,
+              productName:  stock.productName,
+              category:     stock.category,
+              supplier:     stock.supplier,
+              container:    stock.container,
+              lotNumber:    stock.lotNumber,
+              depotId:      targetDepotId,
+              stockType:    stock.stockType,
+              quantity:     amount,
+              unitWeight:   stock.unitWeight,
+              totalWeightKg: transferWeight,
+              costPrice:    stock.costPrice,
+              costPer:      stock.costPer,
+              costCurrency: stock.costCurrency,
+              costBasis:    valDelta,
+              arrivalDate:  stock.arrivalDate,
+              agingDays:    stock.agingDays,
+              fefoScore:    stock.fefoScore,
+              expirationDate: stock.expirationDate,
+              productionDate: stock.productionDate,
+              status:       'in_transit',
+              threshold:    stock.threshold,
+              sourceDoc:    stock.sourceDoc,
+              transferRef:  stock.transferRef,
+              createdAt:    serverTimestamp(),
+              updatedAt:    serverTimestamp(),
+              createdBy:    userId,
             });
-
-            // Add movement record
-            const destMovementRef = doc(collection(newLotRef, 'movements'));
-            transaction.set(destMovementRef, {
-              type: 'transfer_in',
+            createMovement(transaction, newLotRef, {
+              type: 'transfer',
               quantity: amount,
-              sourceDepotId: sourceDepotId,
-              reason: `Transfert (Initial) depuis ${currentDepot?.name}`,
+              previousQty: 0,
+              newQty: amount,
+              reason: `Transfert depuis ${currentDepot?.name}`,
               userId,
               userName,
-              timestamp: serverTimestamp()
             });
           }
 
           transaction.update(destDepotRef, {
             current_load: increment(amount),
-            updatedAt: serverTimestamp()
+            updatedAt: serverTimestamp(),
           });
         }
 
@@ -277,7 +256,7 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
             />
             {mode !== 'entry' && (
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-label font-black text-text-muted uppercase">
-                Dispo: {stock.quantity || stock.cartons || 0}
+                Dispo: {stock.quantity}
               </span>
             )}
           </div>

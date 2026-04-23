@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
+import { createMovement } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { 
   collection, 
@@ -80,7 +81,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   const filteredStocks = useMemo(() => {
     const targetDepotId = activeTab === 'ENTREE' ? entryForm.depotId : exitForm.depotId;
     if (!targetDepotId) return [];
-    return allAvailableStock.filter(s => (s.depotId === targetDepotId || s.depot_id === targetDepotId));
+    return allAvailableStock.filter(s => s.depotId === targetDepotId);
   }, [allAvailableStock, entryForm.depotId, exitForm.depotId, activeTab]);
 
   const selectedLotForExit = useMemo(() => {
@@ -91,10 +92,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
     if (!exitForm.depotId || !exitForm.lotId || !exitForm.quantity || !exitForm.customer) return false;
     const qty = Number(exitForm.quantity);
     if (isNaN(qty) || qty <= 0) return false;
-    if (selectedLotForExit) {
-      const available = selectedLotForExit.quantity ?? selectedLotForExit.cartons ?? selectedLotForExit.units ?? 0;
-      if (qty > available) return false;
-    }
+    if (selectedLotForExit && qty > selectedLotForExit.quantity) return false;
     return true;
   }, [exitForm, selectedLotForExit]);
 
@@ -107,9 +105,9 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   const exitValue = useMemo(() => {
     if (!exitForm.lotId || !selectedLotForExit) return 0;
     const q = Number(exitForm.quantity) || 0;
-    const available = selectedLotForExit.quantity ?? selectedLotForExit.cartons ?? selectedLotForExit.units ?? 1;
-    const p = selectedLotForExit.unitPrice
-      || (available > 0 ? (selectedLotForExit.cost_basis || 0) / available : 0);
+    const available = selectedLotForExit.quantity;
+    const p = selectedLotForExit.costPrice
+      || (available > 0 ? selectedLotForExit.costBasis / available : 0);
     return q * p;
   }, [exitForm.quantity, exitForm.lotId, selectedLotForExit]);
   const handleEntrySubmit = async () => {
@@ -165,8 +163,8 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
           if (!stockDoc.exists()) throw new Error("Stock introuvable");
 
           const currentData = stockDoc.data() as any;
-          finalProduct = currentData.productName || currentData.product;
-          previousQty = currentData.quantity ?? currentData.cartons ?? currentData.units ?? 0;
+          finalProduct = currentData.productName ?? currentData.product;
+          previousQty = currentData.quantity ?? 0;
 
           const updatedPayload = computeStockPayload({
             ...currentData,
@@ -183,8 +181,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
         const valueDelta = qty * finalPrice;
         const newQty = previousQty + qty;
 
-        // Per-stock movement — visible in StockDetail LogsView
-        transaction.set(doc(collection(stockRef, 'movements')), {
+        createMovement(transaction, stockRef, {
           type: 'entry',
           quantity: qty,
           previousQty,
@@ -193,8 +190,6 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
           notes: entryForm.container ? `Réf: ${entryForm.container}` : '',
           userId,
           userName,
-          timestamp: serverTimestamp(),
-          createdAt: serverTimestamp(),
         });
 
         transaction.update(doc(db, 'depots', entryForm.depotId), {
@@ -245,41 +240,30 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
         if (!stockSnap.exists()) throw new Error("Lot introuvable en base");
 
         const current = stockSnap.data() as any;
-        const currentQty = current.quantity ?? current.cartons ?? current.units ?? 0;
+        const currentQty = current.quantity ?? 0;
         if (qty > currentQty) throw new Error(`Stock insuffisant (disponible: ${currentQty})`);
 
-        const unitVal = current.unitPrice
-          || (currentQty > 0 ? (current.cost_basis || 0) / currentQty : 0);
+        const currentCostBasis = current.costBasis ?? current.cost_basis ?? 0;
+        const unitVal  = current.costPrice ?? current.unitPrice
+          ?? (currentQty > 0 ? currentCostBasis / currentQty : 0);
         const valDelta = qty * unitVal;
-        const newQty = currentQty - qty;
+        const newQty   = currentQty - qty;
 
-        // Decrement quantity (canonical) — only alias cartons/units if unitized
-        const stockUpdate: Record<string, any> = {
-          quantity: increment(-qty),
-          cost_basis: increment(-valDelta),
+        transaction.update(stockRef, {
+          quantity:  increment(-qty),
+          costBasis: increment(-valDelta),
           updatedAt: serverTimestamp(),
-        };
-        if (current.stockType !== 'bulk') {
-          stockUpdate.cartons = increment(-qty);
-          stockUpdate.units = increment(-qty);
-        } else {
-          stockUpdate.totalWeightKg = increment(-qty);
-        }
-        transaction.update(stockRef, stockUpdate);
+        });
 
-        // Per-stock movement — visible in StockDetail LogsView
-        transaction.set(doc(collection(stockRef, 'movements')), {
+        createMovement(transaction, stockRef, {
           type: 'exit',
           quantity: qty,
           previousQty: currentQty,
           newQty,
           reason: `Sortie ${exitForm.type}`,
           client: exitForm.customer,
-          notes: '',
           userId,
           userName,
-          timestamp: serverTimestamp(),
-          createdAt: serverTimestamp(),
         });
 
         transaction.update(doc(db, 'depots', dId), {
@@ -295,7 +279,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
         transaction.set(doc(collection(db, 'logs')), {
           type: `SORTIE_${exitForm.type.toUpperCase()}`,
-          message: `Sortie de ${current.product} (-${qty}) pour ${exitForm.customer} par ${userName}`,
+          message: `Sortie de ${current.productName ?? current.product} (-${qty}) pour ${exitForm.customer} par ${userName}`,
           userId,
           timestamp: serverTimestamp(),
           quantity: qty,
@@ -575,7 +559,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
                 {/* Stock Warning UI */}
                 {selectedLotForExit && (() => {
-                  const available = selectedLotForExit.quantity ?? selectedLotForExit.cartons ?? selectedLotForExit.units ?? 0;
+                  const available = selectedLotForExit.quantity;
                   return Number(exitForm.quantity) > available ? (
                     <div className="p-4 bg-status-danger-bg rounded-2xl border border-status-danger/20 flex items-center gap-3 text-status-danger">
                       <AlertTriangle size={18} />

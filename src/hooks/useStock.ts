@@ -8,11 +8,12 @@ import {
   writeBatch,
   doc,
   increment,
-  serverTimestamp
+  serverTimestamp,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
-import { StockItem, Mouvement } from '../types';
+import { StockItem } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
+import { normalizeStockItem, createMovement } from '../lib/stockService';
 
 export const useStock = (depotId: string | 'global') => {
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -33,7 +34,7 @@ export const useStock = (depotId: string | 'global') => {
         return;
       }
 
-      // collectionGroup covers both /stock and /depots/*/stock paths
+      // collectionGroup covers both /stock (legacy) and /depots/*/stock (current)
       const base = collectionGroup(db, 'stock');
       const q = depotId === 'global'
         ? query(base)
@@ -41,22 +42,21 @@ export const useStock = (depotId: string | 'global') => {
 
       unsubscribeSnap = onSnapshot(q, (snapshot) => {
         const lots: StockItem[] = [];
-        let cartons = 0;
-        let value = 0;
+        let totalQty = 0;
+        let totalValue = 0;
 
         snapshot.forEach((d) => {
-          const data = d.data() as StockItem;
-          lots.push({ ...data, id: d.id });
-          // quantity is the canonical field; cartons is the backward-compat alias
-          cartons += data.quantity ?? data.cartons ?? 0;
-          value += data.cost_basis || 0;
+          const item = normalizeStockItem(d.data(), d.id);
+          lots.push(item);
+          totalQty   += item.quantity;
+          totalValue += item.costBasis;
         });
 
         setStock(lots);
-        setStats({ totalCartons: cartons, totalValue: value });
+        setStats({ totalCartons: totalQty, totalValue });
         setLoading(false);
       }, (error) => {
-        console.error("Firestore useStock error:", error);
+        console.error('Firestore useStock error:', error);
         setLoading(false);
       });
     });
@@ -75,7 +75,7 @@ export const useStock = (depotId: string | 'global') => {
       total_value_usd: number;
       containers: Array<{ id: string; cartons: number; kg?: number }>;
     },
-    targetDepotId: string
+    targetDepotId: string,
   ) => {
     const batch = writeBatch(db);
     const createdLots: string[] = [];
@@ -87,89 +87,65 @@ export const useStock = (depotId: string | 'global') => {
       : 0;
 
     for (const container of invoiceData.containers) {
-      // Write to depot subcollection — same path as AddStock and StockMovementForm
       const lotRef = doc(collection(db, 'depots', targetDepotId, 'stock'));
-      const costBasis = Math.round(valuePerCarton * container.cartons);
-      const weightKg = container.kg ?? container.cartons * 20;
+      const weightKg    = container.kg ?? container.cartons * 20;
+      const costBasis   = Math.round(valuePerCarton * container.cartons);
+      const costPrice   = Math.round(valuePerCarton);
 
-      const lotData = {
-        id: lotRef.id,
-        container: container.id,
-        product: invoiceData.product,
-        productName: invoiceData.product,
-        stockType: 'unitized',
-        // Canonical quantity field + backward-compat aliases
-        quantity: container.cartons,
-        units: container.cartons,
-        cartons: container.cartons,
-        unitWeight: weightKg / (container.cartons || 1),
+      // Write canonical fields only
+      batch.set(lotRef, {
+        id:           lotRef.id,
+        sku:          '',
+        productName:  invoiceData.product,
+        category:     '',
+        supplier:     invoiceData.supplier,
+        container:    container.id,
+        depotId:      targetDepotId,
+        stockType:    'unitized',
+        quantity:     container.cartons,
+        unitWeight:   weightKg / (container.cartons || 1),
         totalWeightKg: weightKg,
-        kg: weightKg,
-        cost_basis: costBasis,
-        totalValue: costBasis,
-        unitPrice: Math.round(valuePerCarton),
-        costPrice: Math.round(valuePerCarton),
-        costPer: 'unit',
+        costPrice,
+        costPer:      'unit',
         costCurrency: 'XOF',
-        depotId: targetDepotId,
-        depot_id: targetDepotId,
-        status: 'quay_pad',
-        arrival_date: new Date().toISOString(),
-        fefo_score: 0,
-        aging_days: 0,
-        threshold: 10,
-        min_threshold: 10,
-        source_doc: {
-          invoice_no: invoiceData.invoice_no,
-          supplier: invoiceData.supplier,
+        costBasis,
+        arrivalDate:  new Date().toISOString(),
+        agingDays:    0,
+        fefoScore:    0,
+        status:       'quay_pad',
+        threshold:    10,
+        sourceDoc: {
+          invoiceNo: invoiceData.invoice_no,
+          supplier:  invoiceData.supplier,
         },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        createdBy: auth.currentUser?.uid || 'system',
-      };
-
-      batch.set(lotRef, lotData);
-      createdLots.push(lotRef.id);
-
-      // Per-stock movement — this is what StockDetail LogsView reads
-      const movRef = doc(collection(lotRef, 'movements'));
-      batch.set(movRef, {
-        id: movRef.id,
-        type: 'entry',
-        quantity: container.cartons,
-        previousQty: 0,
-        newQty: container.cartons,
-        reason: `Import facture ${invoiceData.invoice_no}`,
-        notes: `Fournisseur: ${invoiceData.supplier}`,
-        userId: auth.currentUser?.uid || 'system',
-        userName: auth.currentUser?.displayName || 'Système',
-        timestamp: serverTimestamp(),
-        createdAt: serverTimestamp(),
+        createdAt:    serverTimestamp(),
+        updatedAt:    serverTimestamp(),
+        createdBy:    auth.currentUser?.uid || 'system',
       });
 
-      // Global movements collection for cross-depot reporting
-      const globalMovRef = doc(collection(db, 'movements'));
-      batch.set(globalMovRef, {
-        id: globalMovRef.id,
-        type: 'RECEPTION',
-        lot_id: lotRef.id,
-        depot_id: targetDepotId,
-        qty_change: container.cartons,
-        timestamp: new Date().toISOString(),
-        user_id: auth.currentUser?.uid || 'system',
-        createdAt: serverTimestamp(),
-      } as Mouvement);
+      // Single movement path: depots/{id}/stock/{id}/movements/{id}
+      createMovement(batch, lotRef, {
+        type:        'entry',
+        quantity:    container.cartons,
+        previousQty: 0,
+        newQty:      container.cartons,
+        reason:      `Import facture ${invoiceData.invoice_no}`,
+        notes:       `Fournisseur: ${invoiceData.supplier}`,
+        userId:      auth.currentUser?.uid || 'system',
+        userName:    auth.currentUser?.displayName || 'Système',
+      });
+
+      createdLots.push(lotRef.id);
     }
 
     batch.update(doc(db, 'depots', targetDepotId), {
       current_load: increment(totalCartons),
     });
 
-    // Was missing before — importInvoice now updates global stats
     batch.set(doc(db, 'stats', 'global'), {
       totalCartons: increment(totalCartons),
-      valeurStock: increment(Math.round(invoiceData.total_value_usd * USD_TO_FCFA)),
-      lastUpdated: serverTimestamp(),
+      valeurStock:  increment(Math.round(invoiceData.total_value_usd * USD_TO_FCFA)),
+      lastUpdated:  serverTimestamp(),
     }, { merge: true });
 
     await batch.commit();

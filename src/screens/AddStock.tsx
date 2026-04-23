@@ -27,7 +27,8 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn, validateStock, computeStockPayload } from '../lib/utils';
+import { cn, computeStockPayload } from '../lib/utils';
+import { createMovement } from '../lib/stockService';
 import { useDepots } from './StockHome';
 import { useToast } from '../context/ToastContext';
 
@@ -256,8 +257,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
 
         transaction.set(newStockRef, payload);
 
-        // Per-stock movement — visible in StockDetail LogsView
-        transaction.set(doc(collection(newStockRef, 'movements')), {
+        createMovement(transaction, newStockRef, {
           type: 'entry',
           quantity: payload.quantity,
           previousQty: 0,
@@ -266,8 +266,6 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
           notes: payload.container ? `Conteneur: ${payload.container}` : '',
           userName: auth.currentUser?.displayName || 'Agent',
           userId: auth.currentUser?.uid || 'anon',
-          timestamp: serverTimestamp(),
-          createdAt: serverTimestamp(),
         });
 
         if (depotRef) {

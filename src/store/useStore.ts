@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Depot, StockItem, Mouvement, StockStatus, UserRole } from '../types';
+import { Depot, StockItem, StockMovement, UserRole } from '../types';
 
 interface AppStore {
   user: any | null;
@@ -9,7 +9,7 @@ interface AppStore {
   depots: Depot[];
   selectedDepotId: string | null;
   stock: StockItem[];
-  movements: Mouvement[];
+  movements: StockMovement[];
   isGendarmerieMode: boolean;
   activeTab: 'stock' | 'track' | 'docs' | 'settings';
   isUploadModalOpen: boolean;
@@ -26,7 +26,7 @@ interface AppStore {
   setDepots: (depots: Depot[]) => void;
   setSelectedDepotId: (id: string | null) => void;
   setStock: (stock: StockItem[]) => void;
-  setMovements: (movements: Mouvement[]) => void;
+  setMovements: (movements: StockMovement[]) => void;
   toggleGendarmerieMode: () => void;
   setActiveTab: (tab: 'stock' | 'track' | 'docs' | 'settings') => void;
   setIsUploadModalOpen: (open: boolean) => void;
