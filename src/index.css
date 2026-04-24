@@ -2,6 +2,7 @@
 @import "tailwindcss";
 
 @theme {
+  /* Anciennes couleurs conservées pour rétrocompatibilité temporaire */
   --color-ocean-dark: #0d1642;
   --color-ocean-primary: #1a237e;
   --color-ocean-light: #F1F4FF;
@@ -16,6 +17,26 @@
   --color-accent-gold: #FFB800;
   --color-success: #00C853;
   
+  /* DEPOTEK SEMANTIC TOKENS */
+  --color-surface-base: #FFFFFF;
+  --color-surface-muted: #F6F9FC;
+  --color-surface-ocean: #1a237e;
+  --color-surface-ocean-soft: #F8FAFF;
+  --color-surface-danger: #FFF5F5;
+  --color-surface-warning: #FFFBEB;
+  --color-surface-success: #F0FDF4;
+
+  --color-text-base: #1A1F36;
+  --color-text-muted: #4F566B;
+  --color-text-subtle: #A3ACB9;
+  --color-text-ocean: #1a237e;
+  --color-text-inverse: #FFFFFF;
+  --color-text-danger: #FF6B6B;
+  --color-text-warning: #FFB800;
+  --color-text-success: #00C853;
+  
+  --color-border-subtle: #E3E8EE;
+
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
 }
 

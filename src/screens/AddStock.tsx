@@ -431,7 +431,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
               placeholder="Ex: Buffalo Meat Grade A"
             />
             
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                <FormSelect 
                 label="Catégorie *" 
                 options={categories}
@@ -446,7 +446,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
                />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {formData.stockType === 'unitized' ? (
                 <>
                   <FormInput 
@@ -468,7 +468,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
                 <FormInput 
                   type="number"
                   label="Poids Total (kg) *" 
-                  className="col-span-2"
+                  className="sm:col-span-2"
                   value={formData.totalWeightKg} 
                   onChange={(v: string) => setFormData(p => ({ ...p, totalWeightKg: v }))}
                   placeholder="0.00"
@@ -512,7 +512,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
           </div>
 
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormInput 
                 type="date"
                 label="Production" 
@@ -545,7 +545,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormInput 
                 label="N° Lot / Batch *" 
                 value={formData.lotNumber} 
@@ -606,7 +606,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-[9px] font-black uppercase text-gray-400 tracking-widest px-1">Coût d'Achat (Optionnel)</label>
                 <div className="flex gap-1">
