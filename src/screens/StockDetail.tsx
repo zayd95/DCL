@@ -170,6 +170,8 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   }, [stock]);
 
+  const isExpired = daysToExpiry !== null && daysToExpiry <= 0;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-subtle flex flex-col items-center justify-center gap-4">
@@ -194,17 +196,17 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
           </button>
           <div className={cn(
             "px-3 py-1.5 rounded-full flex items-center gap-2",
-            stock.status === 'expired' ? "bg-red-500/20 text-red-500" :
+            isExpired ? "bg-red-500/20 text-red-500" :
             (daysToExpiry !== null && daysToExpiry < 15) ? "bg-orange-500/20 text-orange-500" :
             "bg-green-500/20 text-green-500"
           )}>
             <div className={cn("w-2 h-2 rounded-full", 
-              stock.status === 'expired' ? "bg-red-500" :
+              isExpired ? "bg-red-500" :
               (daysToExpiry !== null && daysToExpiry < 15) ? "bg-orange-500" :
               "bg-green-500"
             )} />
             <span className="text-micro font-black uppercase tracking-widest">
-              {stock.status === 'expired' ? 'Expiré' : 
+              {isExpired ? 'Expiré' : 
                (daysToExpiry !== null && daysToExpiry < 15) ? 'Alerte DLC' : 'Disponible'}
             </span>
           </div>
@@ -251,7 +253,7 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
               if (!canSeeFinancials) return "•••• XOF 🔒";
               const val = stock.totalValue || stock.cost_basis;
               if (!val || Number(val) === 0) return "Non défini";
-              return `${Number(val).toLocaleString()} ${stock.costCurrency || stock.currency || 'XOF'}`;
+              return `${Number(val).toLocaleString()} ${stock.costCurrency || 'XOF'}`;
             };
 
             return (
@@ -290,7 +292,7 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
                 <div className="w-full h-1.5 bg-surface-page rounded-full overflow-hidden mt-1">
                    <div 
                      className="h-full bg-brand transition-all duration-500" 
-                     style={{ width: `${Math.min(100, (unitsCount / (stock.initialQuantity || unitsCount || 1)) * 100)}%` }} 
+                     style={{ width: `${Math.min(100, (unitsCount / (unitsCount || 1)) * 100)}%` }} 
                   />
                 </div>
                 <p className="text-micro font-black text-text-muted uppercase italic">
@@ -529,7 +531,7 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
   const [totalWeightKg, setTotalWeightKg] = useState((stock.totalWeightKg || 0).toString());
   const [costPrice, setCostPrice] = useState((stock.costPrice || stock.unitPrice || '').toString());
   const [costPer, setCostPer] = useState(stock.costPer || (stock.stockType === 'bulk' ? 'kg' : 'unit'));
-  const [currency, setCurrency] = useState(stock.costCurrency || stock.currency || 'XOF');
+  const [currency, setCurrency] = useState(stock.costCurrency || 'XOF');
   const [date, setDate] = useState(stock.arrival_date || '');
   const [expiry, setExpiry] = useState(stock.expirationDate || '');
   const [lot, setLot] = useState(stock.lotNumber || '');
@@ -683,7 +685,7 @@ const EditStockForm = ({ stock, docRef, onCancel }: { stock: StockItem, docRef: 
             </select>
             <select 
               value={currency} 
-              onChange={e => setCurrency(e.target.value)}
+              onChange={e => setCurrency(e.target.value as 'XOF' | 'USD' | 'EUR')}
               className="w-24 bg-surface-subtle border border-transparent rounded-2xl p-4 text-label font-black text-brand-dark focus:bg-white focus:border-brand/20 outline-none transition-all"
             >
               <option value="XOF">XOF</option>
@@ -808,7 +810,7 @@ const MoveStockForm = ({ stock, depots, docRef, onCancel }: { stock: StockItem, 
     doc.setFont("helvetica", "normal");
     doc.text(`Quantité:`, 20, 105);
     doc.setFont("helvetica", "bold");
-    doc.text(`${qty} ${stock.unit || 'Cartons (CTN)'}`, 55, 105);
+    doc.text(`${qty} ${stock.unitType || 'carton'}`, 55, 105);
     
     doc.setFont("helvetica", "normal");
     doc.text(`N° Conteneur:`, 20, 115);

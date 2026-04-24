@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
-import { createMovement, applyMovement } from '../lib/stockService';
+import { createMovement, applyMovement, normalizeStockItem } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { 
   collection, 
@@ -72,7 +72,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   useEffect(() => {
     const q = query(collectionGroup(db, 'stock'), where('status', '==', 'stored'));
     const unsub = onSnapshot(q, (snap) => {
-      setAllAvailableStock(snap.docs.map(d => ({ id: d.id, ...d.data() } as StockItem)));
+      setAllAvailableStock(snap.docs.map(d => normalizeStockItem(d.data() as Record<string, any>, d.id)));
     });
     return () => unsub();
   }, []);
