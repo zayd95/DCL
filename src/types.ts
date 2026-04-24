@@ -153,7 +153,8 @@ export interface Depot {
   location: { lat: number; lng: number };
   manager_uid: string;
   capacity_cartons: number;
-  current_load: number;
+  current_load: number;        // unit count (legacy — UI uses this)
+  current_load_kg?: number;    // kg aggregate (canonical for mixed-unit depots)
   temp_range?: string;
   color: string;
   created_at?: any;
