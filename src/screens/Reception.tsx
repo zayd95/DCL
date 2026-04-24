@@ -341,8 +341,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
           id: stockRef.id,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          aging_days: 0,
-          fefo_score: 100,
+          agingDays: 0,
+          fefoScore: 0,
           createdBy: auth.currentUser.uid
         };
 

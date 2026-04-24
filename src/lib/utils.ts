@@ -18,6 +18,18 @@ export function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-SN');
 }
 
+/** Days from now until the given date. Negative means already past. Returns null if no date. */
+export function daysUntil(date: string | Date | undefined | null): number | null {
+  if (!date) return null;
+  return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
+}
+
+/** True if the given date is in the past (or today). */
+export function isDateExpired(date: string | Date | undefined | null): boolean {
+  const days = daysUntil(date);
+  return days !== null && days <= 0;
+}
+
 export function isFefoAlert(item: any) {
   if (!item) return false;
   // Prefer canonical fields; fall back to deprecated aliases for old Firestore docs

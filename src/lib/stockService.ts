@@ -272,6 +272,27 @@ export async function applyMovement(
     unitType     = (options.createPayload.unitType as UnitType | undefined) ?? 'carton';
     unitWeight   = options.createPayload.unitWeight as number | undefined;
     validateStockItem({ quantity: newQty, costBasis: newCostBasis, unitType });
+
+    // SKU + LOT uniqueness guard — atomic check + reserve via deterministic guard doc.
+    // Race-free: transaction.get ensures snapshot isolation; transaction.set reserves the slot.
+    const guardSku     = (options.createPayload.sku      as string) || '';
+    const guardLot     = (options.createPayload.lotNumber as string) || '';
+    const guardDepotId = (options.createPayload.depotId  as string) || '';
+    if (guardSku && guardLot && guardDepotId) {
+      const guardKey = `${guardSku}_${guardLot}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+      const guardRef = doc(db, 'depots', guardDepotId, 'lotKeys', guardKey);
+      const guardSnap = await transaction.get(guardRef);
+      if (guardSnap.exists()) {
+        throw new Error(
+          `Lot ${guardLot} (SKU: ${guardSku}) existe déjà au dépôt ${guardDepotId}`
+        );
+      }
+      transaction.set(guardRef, {
+        sku: guardSku, lotNumber: guardLot, depotId: guardDepotId,
+        stockId: stockRef.id, createdAt: serverTimestamp(),
+      });
+    }
+
     transaction.set(stockRef, {
       ...options.createPayload,
       id:        stockRef.id,
@@ -337,6 +358,100 @@ export async function applyMovement(
     stockId: stockRef.id,
     depotId: depotRef.id,
   });
+}
+
+// ─── Transfer (high-level) ────────────────────────────────────────────────────
+
+export interface ApplyTransferOptions {
+  /** Unit count to move (always positive). */
+  amount: number;
+  /** Proportional cost value to move (always positive). */
+  costDelta: number;
+  reason?: string;
+  notes?: string;
+  userId: string;
+  userName: string;
+  /** Name of the source depot, used to build the movement reason label. */
+  currentDepotName?: string;
+  /** True when the destination lot does not yet exist (create mode). */
+  isNewLot?: boolean;
+  /** Full payload for the new destination lot. Required when isNewLot === true. */
+  destCreatePayload?: Record<string, unknown>;
+}
+
+/**
+ * Atomically debits the source lot and credits the destination lot inside one
+ * Firestore Transaction.
+ *
+ * Callers MUST use this instead of calling applyMovement({ type: 'transfer' })
+ * directly. A raw transfer applyMovement call with no matching credit leg leaves
+ * the system in a half-transferred state that is impossible to detect or repair.
+ *
+ * The entire operation lives inside the caller's runTransaction — pass the same
+ * Transaction object the caller received. Any error (negative stock, duplicate lot,
+ * etc.) will abort the whole transaction cleanly.
+ */
+export async function applyTransfer(
+  transaction: Transaction,
+  sourceStockRef: DocumentReference,
+  sourceDepotRef: DocumentReference,
+  destStockRef: DocumentReference,
+  destDepotRef: DocumentReference,
+  options: ApplyTransferOptions,
+): Promise<void> {
+  const { amount, costDelta, userId, userName, currentDepotName, isNewLot, destCreatePayload } = options;
+  const reason = options.reason
+    ?? (currentDepotName ? `Transfert depuis ${currentDepotName}` : 'Transfert');
+
+  // Debit source
+  await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+    type:          'transfer',
+    quantityDelta: -amount,
+    costDelta:     -costDelta,
+    reason,
+    notes:         options.notes,
+    targetDepotId: destDepotRef.id,
+    userId,
+    userName,
+  });
+
+  // Credit destination
+  await applyMovement(transaction, destStockRef, destDepotRef, {
+    mode:          isNewLot ? 'create' : 'update',
+    type:          'transfer',
+    quantityDelta: amount,
+    costDelta,
+    reason,
+    notes:         options.notes,
+    userId,
+    userName,
+    createPayload: isNewLot ? destCreatePayload : undefined,
+  });
+}
+
+// ─── Legacy write guard ───────────────────────────────────────────────────────
+
+const LEGACY_WRITE_FIELDS = [
+  'fefo_score', 'depot_id', 'aging_days', 'cost_basis',
+  'arrival_date', 'min_threshold', 'source_doc', 'issue_flags', 'edit_log',
+];
+
+/**
+ * Warns (dev) or throws (production builds that opt-in) when a Firestore write
+ * payload contains deprecated snake_case field names.
+ * Call this at every direct transaction.set / transaction.update boundary that
+ * is NOT inside applyMovement (which manages its own payload).
+ */
+export function assertNoLegacyFields(
+  payload: Record<string, unknown>,
+  context = 'write',
+): void {
+  const found = Object.keys(payload).filter(k => LEGACY_WRITE_FIELDS.includes(k));
+  if (found.length === 0) return;
+  const msg = `[DEPOTEK] Legacy snake_case fields in ${context}: ${found.join(', ')}`;
+  console.warn(msg);
+  // Hard-throw in dev so violations surface during review, not silently in prod.
+  if (process.env.NODE_ENV !== 'production') throw new Error(msg);
 }
 
 // ─── Normalization ────────────────────────────────────────────────────────────

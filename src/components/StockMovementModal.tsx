@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
-import { applyMovement } from '../lib/stockService';
+import { applyMovement, applyTransfer } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import {
   doc,
@@ -91,84 +91,75 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
         const sourceDepotRef = doc(db, 'depots', sourceDepotId);
         const statsRef       = doc(db, 'stats', 'global');
 
-        // 1. SOURCE — read → validate → recompute → write (via applyMovement)
-        const isDebit  = mode === 'exit' || mode === 'transfer';
-        const qtyDelta = isDebit ? -amount : amount;
-        const costDelta = isDebit ? -valDelta : valDelta;
-
-        await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
-          type:          mode,
-          quantityDelta: qtyDelta,
-          costDelta,
-          reason,
-          client:        mode === 'exit' ? client : undefined,
-          targetDepotId: mode === 'transfer' ? targetDepotId : undefined,
-          notes:         notes || undefined,
-          userId,
-          userName,
-        });
-
-        // 2. TRANSFER DESTINATION — all paths through applyMovement
-        if (mode === 'transfer' && targetDepotId) {
-          const destDepotRef   = doc(db, 'depots', targetDepotId);
-          const destStockSnap  = await getDocs(query(
+        // 1. NON-TRANSFER: applyMovement handles source directly
+        // 2. TRANSFER: applyTransfer owns both legs — never call raw applyMovement for transfers
+        if (mode === 'transfer') {
+          const destDepotRef  = doc(db, 'depots', targetDepotId);
+          const destStockSnap = await getDocs(query(
             collection(db, 'depots', targetDepotId, 'stock'),
             where('sku', '==', stock.sku || 'N/A'),
           ));
-          const transferReason = `Transfert depuis ${currentDepot?.name}`;
+          const transferWeight = stock.totalWeightKg > 0
+            ? (stock.totalWeightKg / stock.quantity) * amount
+            : 0;
+          const destStockRef = destStockSnap.empty
+            ? doc(collection(db, 'depots', targetDepotId, 'stock'))
+            : destStockSnap.docs[0].ref;
 
-          if (!destStockSnap.empty) {
-            // Merge into existing lot — applyMovement reads actual previousQty (fixes hardcoded-0 bug)
-            await applyMovement(transaction, destStockSnap.docs[0].ref, destDepotRef, {
-              type:          'transfer',
-              quantityDelta: amount,
-              costDelta:     valDelta,
-              reason:        transferReason,
+          await applyTransfer(
+            transaction,
+            sourceStockRef, sourceDepotRef,
+            destStockRef,   destDepotRef,
+            {
+              amount,
+              costDelta:        valDelta,
               userId,
               userName,
-            });
-          } else {
-            // New lot at destination
-            const newLotRef      = doc(collection(db, 'depots', targetDepotId, 'stock'));
-            const transferWeight = stock.totalWeightKg > 0
-              ? (stock.totalWeightKg / stock.quantity) * amount
-              : 0;
-            await applyMovement(transaction, newLotRef, destDepotRef, {
-              mode:          'create',
-              type:          'transfer',
-              quantityDelta: amount,
-              costDelta:     valDelta,
-              reason:        transferReason,
-              userId,
-              userName,
-              createPayload: {
-                sku:           stock.sku,
-                productName:   stock.productName,
-                category:      stock.category,
-                supplier:      stock.supplier,
-                container:     stock.container,
-                lotNumber:     stock.lotNumber,
-                depotId:       targetDepotId,
-                stockType:     stock.stockType,
-                unitType:      stock.unitType,
-                unitWeight:    stock.unitWeight,
-                totalWeightKg: transferWeight,
-                costPrice:     stock.costPrice,
-                costPer:       stock.costPer,
-                costCurrency:  stock.costCurrency,
-                arrivalDate:   stock.arrivalDate,
-                agingDays:     stock.agingDays,
-                fefoScore:     stock.fefoScore,
+              currentDepotName: currentDepot?.name,
+              notes:            notes || undefined,
+              isNewLot:         destStockSnap.empty,
+              destCreatePayload: destStockSnap.empty ? {
+                sku:            stock.sku,
+                productName:    stock.productName,
+                category:       stock.category,
+                supplier:       stock.supplier,
+                container:      stock.container,
+                lotNumber:      stock.lotNumber,
+                depotId:        targetDepotId,
+                stockType:      stock.stockType,
+                unitType:       stock.unitType,
+                unitWeight:     stock.unitWeight,
+                totalWeightKg:  transferWeight,
+                costPrice:      stock.costPrice,
+                costPer:        stock.costPer,
+                costCurrency:   stock.costCurrency,
+                arrivalDate:    stock.arrivalDate,
+                agingDays:      stock.agingDays,
+                fefoScore:      stock.fefoScore,
                 expirationDate: stock.expirationDate,
                 productionDate: stock.productionDate,
-                status:        'in_transit',
-                threshold:     stock.threshold,
-                sourceDoc:     stock.sourceDoc,
-                transferRef:   stock.transferRef,
-              },
-            });
-          }
-          // No separate destDepotRef.update() — applyMovement handles depot load above
+                status:         'in_transit',
+                threshold:      stock.threshold,
+                sourceDoc:      stock.sourceDoc,
+                transferRef:    stock.transferRef,
+              } : undefined,
+            },
+          );
+        } else {
+          const isDebit  = mode === 'exit';
+          const qtyDelta = isDebit ? -amount : amount;
+          const costDelta = isDebit ? -valDelta : valDelta;
+
+          await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+            type:          mode,
+            quantityDelta: qtyDelta,
+            costDelta,
+            reason,
+            client:        mode === 'exit' ? client : undefined,
+            notes:         notes || undefined,
+            userId,
+            userName,
+          });
         }
 
         // 3. GLOBAL STATS — transfers don't change totals (only location)

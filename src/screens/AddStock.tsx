@@ -27,7 +27,7 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn, computeStockPayload } from '../lib/utils';
+import { cn, computeStockPayload, daysUntil } from '../lib/utils';
 import { createMovement } from '../lib/stockService';
 import { useDepots } from './StockHome';
 import { useToast } from '../context/ToastContext';
@@ -211,11 +211,7 @@ export const AddStock = ({ onBack }: { onBack: () => void }) => {
     return { totalWeight, unitsCount, totalVal, isCostSet };
   }, [formData]);
 
-  const daysToExpiry = useMemo(() => {
-    if (!formData.expirationDate) return null;
-    const diff = new Date(formData.expirationDate).getTime() - new Date().getTime();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  }, [formData.expirationDate]);
+  const daysToExpiry = daysUntil(formData.expirationDate);
 
   const handleSubmit = async () => {
     setLoading(true);
