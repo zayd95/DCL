@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
+import { computeStockState } from '../lib/stockService';
 import { StockItem, StockMovement, Depot } from '../types';
 import { useToast } from '../context/ToastContext';
 import { useDepots } from './StockHome';
@@ -164,13 +165,9 @@ export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
 
   const canSeeFinancials = userRole === "admin" || userRole === "manager";
 
-  const daysToExpiry = useMemo(() => {
-    if (!stock?.expirationDate) return null;
-    const diff = new Date(stock.expirationDate).getTime() - new Date().getTime();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  }, [stock]);
-
-  const isExpired = daysToExpiry !== null && daysToExpiry <= 0;
+  const stockState   = useMemo(() => stock ? computeStockState(stock) : null, [stock]);
+  const daysToExpiry = stockState?.daysToExpiry ?? null;
+  const isExpired    = stockState?.isExpired   ?? false;
 
   if (loading) {
     return (

@@ -1,3 +1,42 @@
+/**
+ * stockService — single brain for stock reads, writes, validation, and derived state.
+ *
+ * Public API surface:
+ *   readers:    normalizeStockItem (read boundary)
+ *   computed:   computeStockState, toKg
+ *   validation: validateStockItem
+ *   writers:    applyMovement (interactive, in-transaction)
+ *               createMovement (low-level, used by importInvoice WriteBatch only)
+ *
+ * ─── ROADMAP: lot-based stock (Step 2 — biggest upgrade, deferred) ────────────
+ *
+ * Current model: one StockItem doc per (depot × product × import). costBasis is a
+ * single proportional pool. Works for uniform lots, breaks down with multi-supplier
+ * stock at the same SKU (mixed prices, partial exits FIFO/LIFO ambiguous).
+ *
+ * Target model:
+ *   /products/{sku}              — catalog (productName, category, unitWeight default)
+ *   /lots/{lotId}                — physical batch (sku, supplier, productionDate,
+ *                                  expirationDate, originalQty, costPriceUnit, currency)
+ *   /depots/{d}/lotStock/{lotId} — qty of a lot AT a depot (depotId, lotId, quantity)
+ *   /movements/{movId}           — already global; gains lotId field
+ *
+ * Unlocks:
+ *   real FEFO (oldest lot exits first by expirationDate, not by doc order)
+ *   accurate per-lot costing (no proportional approximation)
+ *   multi-container traceability (lot → invoice → container chain preserved)
+ *   loss attribution (which supplier's batch expired)
+ *
+ * Migration sketch:
+ *   1. Backfill /products from existing StockItems (group by sku).
+ *   2. Backfill /lots from existing StockItems (one lot per existing doc, copying
+ *      sourceDoc.invoiceNo/supplier and totalWeight).
+ *   3. Convert each StockItem to a depot/lotStock entry pointing at its lot.
+ *   4. Update applyMovement to debit lots in FEFO order, not the source doc directly.
+ *   5. Drop StockItem.costBasis (derived from /lots costPriceUnit × current qty).
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+
 import { db } from './firebase';
 import {
   doc,
@@ -62,6 +101,16 @@ export interface StockComputedState {
   isLowStock: boolean;
   statusLabel: string;
   statusColor: 'green' | 'orange' | 'red';
+  /**
+   * State-machine health for automation/alerts. Priority (highest first):
+   * ARCHIVED > EXPIRED > CRITICAL > LOW > ACTIVE
+   *   ARCHIVED — soft-deleted (status === 'archived')
+   *   EXPIRED  — past expiration date
+   *   CRITICAL — < 15 days to expiry, or aging > 90 days, or fefoScore > 60
+   *   LOW      — quantity ≤ threshold (and not CRITICAL/EXPIRED)
+   *   ACTIVE   — healthy default
+   */
+  healthStatus: 'ACTIVE' | 'LOW' | 'CRITICAL' | 'EXPIRED' | 'ARCHIVED';
 }
 
 /**
@@ -86,7 +135,18 @@ export function computeStockState(item: StockItem): StockComputedState {
   else if (daysToExpiry !== null && daysToExpiry < 15) { statusLabel = 'Alerte DLC'; statusColor = 'orange'; }
   else if (isLowStock) { statusLabel = 'Stock Bas'; statusColor = 'orange'; }
 
-  return { isExpired, daysToExpiry, fefoScore, isLowStock, statusLabel, statusColor };
+  // State machine — higher-priority states win
+  const isCritical =
+    (daysToExpiry !== null && daysToExpiry < 15) ||
+    item.agingDays > 90 ||
+    fefoScore > 60;
+  let healthStatus: StockComputedState['healthStatus'] = 'ACTIVE';
+  if (item.status === 'archived')   healthStatus = 'ARCHIVED';
+  else if (isExpired)               healthStatus = 'EXPIRED';
+  else if (isCritical)              healthStatus = 'CRITICAL';
+  else if (isLowStock)              healthStatus = 'LOW';
+
+  return { isExpired, daysToExpiry, fefoScore, isLowStock, statusLabel, statusColor, healthStatus };
 }
 
 // ─── Movement (low-level) ─────────────────────────────────────────────────────
@@ -171,12 +231,32 @@ export interface ApplyMovementOptions {
  *   - Movements: dual-write to /depots/{d}/stock/{s}/movements/ (detail view)
  *                and to /movements/ (global analytics + activity feed).
  */
+/**
+ * Enforces direction/intent rules per movement type.
+ *  entry      — quantityDelta must be > 0
+ *  exit       — quantityDelta must be < 0
+ *  adjustment — requires a non-empty reason
+ *  transfer   — caller must invoke applyMovement twice (source debit + dest credit);
+ *               each leg's direction is validated by entry/exit rules above when
+ *               the caller uses signed deltas, or skipped if type === 'transfer'
+ *  split, edit — direction not enforced
+ */
+function validateMovementType(opts: ApplyMovementOptions): void {
+  if (opts.type === 'entry' && opts.quantityDelta <= 0)
+    throw new Error("Mouvement 'entry' doit augmenter la quantité (quantityDelta > 0)");
+  if (opts.type === 'exit' && opts.quantityDelta >= 0)
+    throw new Error("Mouvement 'exit' doit diminuer la quantité (quantityDelta < 0)");
+  if (opts.type === 'adjustment' && (!opts.reason || !opts.reason.trim()))
+    throw new Error("Mouvement 'adjustment' requiert un motif");
+}
+
 export async function applyMovement(
   transaction: Transaction,
   stockRef: DocumentReference,
   depotRef: DocumentReference,
   options: ApplyMovementOptions,
 ): Promise<void> {
+  validateMovementType(options);
   const mode = options.mode ?? 'update';
   let previousQty = 0;
   let newQty: number;

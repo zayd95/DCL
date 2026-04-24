@@ -11,6 +11,7 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { normalizeStockItem } from '../lib/stockService';
 import { 
   Plus, 
   Box, 
@@ -91,26 +92,14 @@ export function useStock(depotId: string | 'all') {
     const q = query(collectionGroup(db, 'stock'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      let items = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const dId = data.depotId || data.depot_id || 'unassigned';
-        return { 
-          id: doc.id, 
-          ...data,
-          cartons: data.cartons || data.quantity || 0,
-          product: data.product || data.productName || 'Sans nom',
-          depot_id: dId,
-          stockType: data.stockType || 'unitized',
-          unitWeight: data.unitWeight || 0
-        } as StockItem;
-      });
+      // normalizeStockItem maps every legacy alias to canonical fields and back-fills
+      // unitType/quantity/costBasis — no ad-hoc field selection needed.
+      let items = snapshot.docs.map(d => normalizeStockItem(d.data() as Record<string, any>, d.id));
 
-      // Filter by depot if not 'all'
       if (depotId !== 'all') {
-        items = items.filter(i => i.depot_id === depotId);
+        items = items.filter(i => i.depotId === depotId);
       }
 
-      // Filtering out archived items
       setLots(items.filter(i => i.status !== 'archived'));
       setLoading(false);
     }, (error) => {

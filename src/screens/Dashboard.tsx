@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { computeStockState } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, collectionGroup, where, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { Depot, StockItem } from '../types';
@@ -117,9 +118,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
     }
 
     const valueAtRisk = allStock.reduce((acc, s) => {
-      if (!s.expirationDate) return acc;
-      const days = (new Date(s.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24);
-      return days < 30 ? acc + (Number(s.cost_basis) || 0) : acc;
+      const { daysToExpiry } = computeStockState(s);
+      if (daysToExpiry === null || daysToExpiry >= 30) return acc;
+      return acc + (s.costBasis || 0);
     }, 0);
 
     if (valueAtRisk > 1000000) {
@@ -138,13 +139,11 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
   // 5. LOGIC: REQUIRED ACTIONS (Actionable)
   const requiredActions = useMemo(() => {
     const actions = [];
-    const now = new Date();
 
-    // FEFO Urgency
+    // FEFO Urgency — < 7 days to expiry maps to CRITICAL (state machine)
     const fefoUrgent = allStock.filter(s => {
-      if (!s.expirationDate) return false;
-      const days = (new Date(s.expirationDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-      return days < 7;
+      const { daysToExpiry } = computeStockState(s);
+      return daysToExpiry !== null && daysToExpiry < 7;
     });
 
     if (fefoUrgent.length > 0) {
@@ -200,12 +199,11 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
     const totalL = depots.reduce((acc, d) => acc + (Number(d.current_load) || 0), 0);
     const avgSat = totalCap > 0 ? (totalL / totalCap) * 100 : 0;
 
-    // FEFO Status
-    const now = new Date();
+    // FEFO Status — count items at CRITICAL/EXPIRED or expiring within a month
     const urgentCount = allStock.filter(s => {
-      if (!s.expirationDate) return (s.aging_days || 0) > 90;
-      const days = (new Date(s.expirationDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-      return days < 30; // Within a month
+      const { daysToExpiry, healthStatus } = computeStockState(s);
+      if (daysToExpiry === null) return healthStatus === 'CRITICAL' || healthStatus === 'EXPIRED';
+      return daysToExpiry < 30;
     }).length;
     const fefoHealth = allStock.length > 0 ? 100 - (Math.min((urgentCount / allStock.length) * 100, 100)) : 100;
 

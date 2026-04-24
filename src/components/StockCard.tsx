@@ -1,7 +1,8 @@
 
 import React, { useState, useRef } from 'react';
 import { StockItem, Depot } from '../types';
-import { cn, isFefoAlert, isLowStockAlert } from '../lib/utils';
+import { cn } from '../lib/utils';
+import { computeStockState } from '../lib/stockService';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, MapPin, ArrowLeftRight, Split, Edit3, Trash2, ArrowDownCircle } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
@@ -33,8 +34,9 @@ export const StockCard = ({ item, depot }: StockCardProps) => {
     { label: 'Abandonner',  icon: <Trash2 size={18} />,       action: () => { setShowOptions(false); }, color: 'text-status-danger' },
   ];
 
-  const alertFefo     = isFefoAlert(item);
-  const alertLowStock = isLowStockAlert(item);
+  const state         = computeStockState(item);
+  const alertFefo     = state.healthStatus === 'EXPIRED' || state.healthStatus === 'CRITICAL';
+  const alertLowStock = state.healthStatus === 'LOW';
 
   return (
     <div className="relative">
