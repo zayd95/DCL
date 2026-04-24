@@ -130,6 +130,11 @@ export function computeStockPayload(input: any): Omit<import('../types').StockIt
   // quantity: unit count for unitized, kg for bulk
   const quantity = unitQty ?? totalWeightKg;
 
+  const UNIT_TYPES = ['carton', 'palette', 'kg', 'tonne', 'litre', 'piece'];
+  const unitType = UNIT_TYPES.includes(input.unitType)
+    ? input.unitType
+    : (stockType === 'bulk' ? 'kg' : 'carton');
+
   const costPer: 'unit' | 'kg' = input.costPer ?? (stockType === 'unitized' ? 'unit' : 'kg');
   let costBasis = 0;
   if (costPrice !== null) {
@@ -151,6 +156,7 @@ export function computeStockPayload(input: any): Omit<import('../types').StockIt
     depotId,
     location:     input.location     ?? '',
     stockType,
+    unitType,
     quantity,
     unitWeight,
     totalWeightKg,

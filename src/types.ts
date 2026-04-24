@@ -19,6 +19,8 @@ export type MovementType =
 
 export type UserRole = 'magasinier' | 'manager' | 'cfo';
 
+export type UnitType = 'carton' | 'palette' | 'kg' | 'tonne' | 'litre' | 'piece';
+
 export type DocCategory =
   | 'invoice' | 'bill_of_lading' | 'sanitary_certificate'
   | 'halal_certificate' | 'temperature_log' | 'customs'
@@ -55,6 +57,7 @@ export interface StockItem {
 
   // Quantity model
   stockType: 'unitized' | 'bulk';
+  unitType: UnitType;
   /**
    * Canonical quantity.
    * unitized → carton / unit count

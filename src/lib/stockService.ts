@@ -3,8 +3,20 @@ import {
   collection,
   DocumentReference,
   serverTimestamp,
+  Transaction,
+  increment,
 } from 'firebase/firestore';
-import { StockItem, StockMovement, MovementType } from '../types';
+import { StockItem, StockMovement, MovementType, UnitType } from '../types';
+
+// ─── Unit Type ────────────────────────────────────────────────────────────────
+
+const VALID_UNIT_TYPES: UnitType[] = ['carton', 'palette', 'kg', 'tonne', 'litre', 'piece'];
+
+/** Resolves a UnitType from a stored hint or derives it from stockType. */
+export function deriveUnitType(stockType: 'unitized' | 'bulk', hint?: string): UnitType {
+  if (hint && (VALID_UNIT_TYPES as string[]).includes(hint)) return hint as UnitType;
+  return stockType === 'bulk' ? 'kg' : 'carton';
+}
 
 // ─── Movement ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +54,66 @@ export function createMovement(
   });
 }
 
+export interface ApplyMovementOptions {
+  type: MovementType;
+  /** Signed quantity delta: positive for increases, negative for decreases. */
+  quantityDelta: number;
+  /** Signed cost delta matching quantityDelta direction. */
+  costDelta: number;
+  reason: string;
+  notes?: string;
+  client?: string;
+  targetDepotId?: string;
+  transferRef?: string;
+  userId: string;
+  userName: string;
+  /** Stock quantity before this movement (for audit log). */
+  previousQty: number;
+  /** Stock quantity after this movement (for audit log). */
+  newQty: number;
+}
+
+/**
+ * Atomic stock movement inside a Firestore Transaction.
+ * Updates the stock lot (quantity + costBasis), the depot load counter,
+ * and appends a movement log entry in a single pass.
+ *
+ * For new lot creation (entry via transaction.set), call createMovement()
+ * and update depotRef manually after the set — applyMovement assumes the lot exists.
+ *
+ * Step 3 NOTE (deferred): future dual-write — also write to global /movements/{id}
+ * for cross-depot analytics, once the dashboard analytics screen is implemented.
+ */
+export function applyMovement(
+  transaction: Transaction,
+  stockRef: DocumentReference,
+  depotRef: DocumentReference,
+  options: ApplyMovementOptions,
+): void {
+  transaction.update(stockRef, {
+    quantity:  increment(options.quantityDelta),
+    costBasis: increment(options.costDelta),
+    updatedAt: serverTimestamp(),
+  });
+  transaction.update(depotRef, {
+    current_load: increment(options.quantityDelta),
+    updatedAt:    serverTimestamp(),
+  });
+  createMovement(transaction, stockRef, {
+    type:          options.type,
+    quantity:      Math.abs(options.quantityDelta),
+    previousQty:   options.previousQty,
+    newQty:        options.newQty,
+    reason:        options.reason,
+    notes:         options.notes,
+    client:        options.client,
+    targetDepotId: options.targetDepotId,
+    transferRef:   options.transferRef,
+    userId:        options.userId,
+    userName:      options.userName,
+  });
+}
+
 // ─── Normalization ────────────────────────────────────────────────────────────
 
 /**
@@ -64,6 +136,7 @@ export function normalizeStockItem(raw: Record<string, any>, id: string): StockI
   const quantity     = raw.quantity ?? raw.cartons ?? raw.units ?? raw.totalWeightKg ?? 0;
   const totalWeightKg = raw.totalWeightKg ?? raw.kg ?? 0;
   const stockType: 'unitized' | 'bulk' = raw.stockType ?? 'unitized';
+  const unitType = deriveUnitType(stockType, raw.unitType);
 
   const costPrice = raw.costPrice ?? raw.unitPrice ?? null;
   const costBasis = raw.costBasis ?? raw.cost_basis ?? raw.totalValue ?? 0;
@@ -94,6 +167,7 @@ export function normalizeStockItem(raw: Record<string, any>, id: string): StockI
     depotId,
     location:     raw.location,
     stockType,
+    unitType,
     quantity,
     unitWeight:   raw.unitWeight,
     totalWeightKg,

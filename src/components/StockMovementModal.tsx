@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
-import { createMovement } from '../lib/stockService';
+import { createMovement, applyMovement } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { 
   doc, 
@@ -94,33 +94,23 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
         const sourceDepotRef = doc(db, 'depots', sourceDepotId);
         const statsRef       = doc(db, 'stats', 'global');
 
-        // 1. UPDATE SOURCE STOCK — canonical fields only, no cartons alias
+        // 1. UPDATE SOURCE — stock qty/cost + depot load + movement log (atomic)
         const isDebit = mode === 'exit' || mode === 'transfer';
         const qtyDelta = isDebit ? -amount : amount;
         const costDelta = isDebit ? -valDelta : valDelta;
 
-        transaction.update(sourceStockRef, {
-          quantity:   increment(qtyDelta),
-          costBasis:  increment(costDelta),
-          updatedAt:  serverTimestamp(),
-        });
-        transaction.update(sourceDepotRef, {
-          current_load: increment(qtyDelta),
-          updatedAt: serverTimestamp(),
-        });
-
-        // 2. MOVEMENT LOG — single subcollection path
-        createMovement(transaction, sourceStockRef, {
-          type: mode,
-          quantity: amount,
-          previousQty: currentQty,
-          newQty: currentQty + qtyDelta,
+        applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+          type:          mode,
+          quantityDelta: qtyDelta,
+          costDelta,
           reason,
-          client: mode === 'exit' ? client : undefined,
+          client:        mode === 'exit' ? client : undefined,
           targetDepotId: mode === 'transfer' ? targetDepotId : undefined,
-          notes: notes || undefined,
+          notes:         notes || undefined,
           userId,
           userName,
+          previousQty:   currentQty,
+          newQty:        currentQty + qtyDelta,
         });
 
         // 3. TRANSFER DESTINATION

@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
-import { createMovement } from '../lib/stockService';
+import { createMovement, applyMovement } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
 import { 
   collection, 
@@ -132,9 +132,10 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
       const userId = auth.currentUser?.uid;
 
       await runTransaction(db, async (transaction) => {
-        let stockRef;
+        let stockRef: ReturnType<typeof doc>;
         let finalProduct = entryForm.product;
         const finalPrice = Number(entryForm.unitPrice);
+        const valueDelta = qty * finalPrice;
         let previousQty = 0;
 
         if (isNew) {
@@ -157,45 +158,41 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
             updatedAt: serverTimestamp(),
             createdBy: userId,
           });
+          // New lot: createMovement + depot update manually (applyMovement would double-count quantity)
+          createMovement(transaction, stockRef, {
+            type: 'entry',
+            quantity: qty,
+            previousQty: 0,
+            newQty: qty,
+            reason: `Entrée ${entryForm.type}`,
+            notes: entryForm.container ? `Réf: ${entryForm.container}` : undefined,
+            userId,
+            userName,
+          });
+          transaction.update(doc(db, 'depots', entryForm.depotId), {
+            current_load: increment(qty),
+            updatedAt: serverTimestamp(),
+          });
         } else {
           stockRef = doc(db, 'depots', entryForm.depotId, 'stock', entryForm.stockId);
           const stockDoc = await transaction.get(stockRef);
           if (!stockDoc.exists()) throw new Error("Stock introuvable");
-
           const currentData = stockDoc.data() as any;
           finalProduct = currentData.productName ?? currentData.product;
           previousQty = currentData.quantity ?? 0;
-
-          const updatedPayload = computeStockPayload({
-            ...currentData,
-            units: previousQty + qty,
-            costPrice: finalPrice,
-          });
-
-          transaction.update(stockRef, {
-            ...updatedPayload,
-            updatedAt: serverTimestamp(),
+          // Existing lot: atomic increment via applyMovement (race-condition safe)
+          applyMovement(transaction, stockRef, doc(db, 'depots', entryForm.depotId), {
+            type:          'entry',
+            quantityDelta: qty,
+            costDelta:     valueDelta,
+            reason:        `Entrée ${entryForm.type}`,
+            notes:         entryForm.container ? `Réf: ${entryForm.container}` : undefined,
+            userId,
+            userName,
+            previousQty,
+            newQty:        previousQty + qty,
           });
         }
-
-        const valueDelta = qty * finalPrice;
-        const newQty = previousQty + qty;
-
-        createMovement(transaction, stockRef, {
-          type: 'entry',
-          quantity: qty,
-          previousQty,
-          newQty,
-          reason: `Entrée ${entryForm.type}`,
-          notes: entryForm.container ? `Réf: ${entryForm.container}` : '',
-          userId,
-          userName,
-        });
-
-        transaction.update(doc(db, 'depots', entryForm.depotId), {
-          current_load: increment(qty),
-          updatedAt: serverTimestamp(),
-        });
 
         transaction.set(doc(db, 'stats', 'global'), {
           valeurStock: increment(valueDelta),
@@ -249,26 +246,16 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
         const valDelta = qty * unitVal;
         const newQty   = currentQty - qty;
 
-        transaction.update(stockRef, {
-          quantity:  increment(-qty),
-          costBasis: increment(-valDelta),
-          updatedAt: serverTimestamp(),
-        });
-
-        createMovement(transaction, stockRef, {
-          type: 'exit',
-          quantity: qty,
-          previousQty: currentQty,
-          newQty,
-          reason: `Sortie ${exitForm.type}`,
-          client: exitForm.customer,
+        applyMovement(transaction, stockRef, doc(db, 'depots', dId), {
+          type:          'exit',
+          quantityDelta: -qty,
+          costDelta:     -valDelta,
+          reason:        `Sortie ${exitForm.type}`,
+          client:        exitForm.customer,
           userId,
           userName,
-        });
-
-        transaction.update(doc(db, 'depots', dId), {
-          current_load: increment(-qty),
-          updatedAt: serverTimestamp(),
+          previousQty:   currentQty,
+          newQty,
         });
 
         transaction.set(doc(db, 'stats', 'global'), {
