@@ -31,22 +31,23 @@ import { cn, computeStockPayload } from '../lib/utils';
 import { db, auth } from '../lib/firebase';
 import { 
   collection, 
-  query, 
-  where, 
-  onSnapshot, 
+  query,
+  where,
+  onSnapshot,
   doc,
   getDocs,
   writeBatch,
   runTransaction,
-  serverTimestamp, 
-  orderBy, 
-  limit, 
+  serverTimestamp,
+  orderBy,
+  limit,
   increment,
-  Timestamp
+  Timestamp,
 } from 'firebase/firestore';
 import { useToast } from '../context/ToastContext';
 import { useDepots, useUnreadAlerts } from './StockHome';
-import { ContainerInfo, DocumentEntry, StockStatus, DocCategory } from '../types';
+import { ContainerInfo, DocumentEntry, StockStatus, DocCategory, LotDoc, LotStockDoc, LotGuardDoc } from '../types';
+import { resolveXofRate, stockViewId } from '../lib/stockService';
 import { analyzeLogisticsDocument } from '../services/geminiService';
 import { compressImage } from '../services/imageCompressionService';
 import { trackingService, TrackingData, Milestone } from '../services/trackingService';
@@ -305,6 +306,9 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       const firstProduct = dataToUse.products?.[0] || { name: 'Produit Inconnu', quantity: 0 };
       const estimatedValue = (firstProduct.quantity || 0) * 15000;
 
+      // Generate lot ID before the transaction — same ID reused on retries (idempotent).
+      const preLotId = doc(collection(db, 'lots')).id;
+
       await runTransaction(db, async (transaction) => {
         // 1. Mark doc as PROCESSED
         const docRef = doc(collection(db, 'document_library'));
@@ -336,14 +340,108 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
           status: 'stored'
         });
 
+        // ── Phase 0: lot identity ────────────────────────────────────────────
+        const sku       = calculatedPayload.sku || '';
+        const lotNumber = calculatedPayload.lotNumber || containerNo.slice(-8);
+        const currency  = (calculatedPayload.costCurrency || 'XOF') as 'XOF' | 'USD' | 'EUR';
+        const xofRate   = resolveXofRate(currency);
+        const cpUnit    = calculatedPayload.costPrice ?? null;
+        const cpXof     = cpUnit != null ? cpUnit * xofRate : 0;
+        const qty       = Number(calculatedPayload.quantity ?? calculatedPayload.totalWeightKg ?? 0);
+
+        let resolvedLotId = preLotId;
+
+        if (sku) {
+          const guardKey  = `${sku}_${lotNumber}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+          const guardRef  = doc(db, 'lotGuards', guardKey);
+          const guardSnap = await transaction.get(guardRef);
+
+          if (guardSnap.exists()) {
+            // Same lot already received at another depot — reuse canonical lotId.
+            resolvedLotId = guardSnap.data().lotId as string;
+          } else {
+            // New lot — create /lots, /products, guard atomically.
+            const lotPayload: LotDoc = {
+              lotId:                resolvedLotId,
+              sku,
+              lotNumber,
+              supplier:             calculatedPayload.supplier             || '',
+              containerNo:          calculatedPayload.container            || containerNo,
+              productionDate:       calculatedPayload.productionDate       || '',
+              expirationDate:       calculatedPayload.expirationDate       || '',
+              originalQty:          qty,
+              unitType:             calculatedPayload.unitType             || 'carton',
+              unitWeight:           calculatedPayload.unitWeight           ?? null,
+              costPriceUnit:        cpUnit,
+              costCurrency:         currency,
+              exchangeRateAtImport: xofRate,
+              costPriceUnitXof:     cpXof,
+              originalDepotId:      chosenDepotId,
+              totalQuantity:        qty,
+              status:               'active',
+              sourceDoc:            null,
+              createdAt:            serverTimestamp(),
+              createdBy:            auth.currentUser.uid,
+            };
+            transaction.set(doc(db, 'lots', resolvedLotId), lotPayload);
+
+            transaction.set(doc(db, 'products', sku), {
+              sku,
+              productName:       firstProduct.name || sku,
+              category:          calculatedPayload.category || '',
+              unitTypeDefault:   calculatedPayload.unitType || 'carton',
+              unitWeightDefault: calculatedPayload.unitWeight ?? null,
+              thresholdGlobal:   10,
+              updatedAt:         serverTimestamp(),
+            }, { merge: true });
+
+            const guardPayload: LotGuardDoc = {
+              sku, lotNumber, lotId: resolvedLotId, createdAt: serverTimestamp(),
+            };
+            transaction.set(guardRef, guardPayload);
+          }
+
+          // LotStock — live quantity at this depot.
+          const lotStockPayload: LotStockDoc = {
+            lotId:             resolvedLotId,
+            sku,
+            depotId:           chosenDepotId,
+            quantity:          qty,
+            isActive:          qty > 0,
+            expirationSortKey: calculatedPayload.expirationDate || '9999-12-31',
+            productionDate:    calculatedPayload.productionDate || '',
+            costPriceUnitXof:  cpXof,
+            createdAt:         serverTimestamp(),
+            updatedAt:         serverTimestamp(),
+          };
+          transaction.set(
+            doc(db, 'depots', chosenDepotId, 'lotStock', resolvedLotId),
+            lotStockPayload,
+          );
+
+          // StockView — numeric counters only; Cloud Function owns earliestExpiration.
+          const kgDelta = qty * (calculatedPayload.unitWeight || (calculatedPayload.unitType === 'kg' ? 1 : 20));
+          transaction.set(doc(db, 'stockView', stockViewId(chosenDepotId, sku)), {
+            sku,
+            depotId:       chosenDepotId,
+            totalQuantity: increment(qty),
+            totalWeightKg: increment(kgDelta),
+            totalValueXof: increment(qty * cpXof),
+            lotsCount:     increment(1),
+            lastUpdated:   serverTimestamp(),
+          }, { merge: true });
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         const finalPayload = {
           ...calculatedPayload,
-          id: stockRef.id,
+          id:        stockRef.id,
+          lotId:     resolvedLotId,           // forward reference to /lots/{lotId}
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           agingDays: 0,
           fefoScore: 0,
-          createdBy: auth.currentUser.uid
+          createdBy: auth.currentUser.uid,
         };
 
         transaction.set(stockRef, finalPayload);
@@ -351,8 +449,9 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
         // 3. Update Depot Counters
         const depotRef = doc(db, 'depots', chosenDepotId);
         transaction.update(depotRef, {
-          current_load: increment(Number(finalPayload.units || finalPayload.totalWeightKg)),
-          updatedAt: serverTimestamp()
+          current_load:    increment(Number(finalPayload.quantity ?? finalPayload.totalWeightKg ?? 0)),
+          current_load_kg: increment(Number(finalPayload.totalWeightKg ?? 0)),
+          updatedAt:       serverTimestamp(),
         });
 
         // 4. Global Stats

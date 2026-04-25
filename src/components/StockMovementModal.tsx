@@ -86,6 +86,11 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
       const unitValue = stock.costPrice ?? (stock.quantity > 0 ? stock.costBasis / stock.quantity : 0);
       const valDelta  = amount * unitValue;
 
+      // Generate movement IDs BEFORE the transaction — idempotency keys for app-layer retries.
+      const movementId  = doc(collection(db, 'movements')).id; // for entry/exit/adjustment
+      const sourceMovId = doc(collection(db, 'movements')).id; // for transfer source leg
+      const destMovId   = doc(collection(db, 'movements')).id; // for transfer dest leg
+
       await runTransaction(db, async (transaction) => {
         const sourceStockRef = docRef || doc(db, 'depots', sourceDepotId, 'stock', stock.id);
         const sourceDepotRef = doc(db, 'depots', sourceDepotId);
@@ -117,6 +122,8 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
               userName,
               currentDepotName: currentDepot?.name,
               notes:            notes || undefined,
+              sourceMovementId: sourceMovId,
+              destMovementId:   destMovId,
               isNewLot:         destStockSnap.empty,
               destCreatePayload: destStockSnap.empty ? {
                 sku:            stock.sku,
@@ -151,6 +158,7 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
           const costDelta = isDebit ? -valDelta : valDelta;
 
           await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+            movementId,
             type:          mode,
             quantityDelta: qtyDelta,
             costDelta,

@@ -46,7 +46,7 @@ import {
   Transaction,
   increment,
 } from 'firebase/firestore';
-import { StockItem, MovementType, UnitType } from '../types';
+import { StockItem, MovementType, UnitType, LotDoc, LotStockDoc, LotGuardDoc } from '../types';
 
 // ─── Unit Type ────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,25 @@ export function toKg(quantity: number, unitType: UnitType, unitWeight?: number |
   if (unitType === 'tonne') return quantity * 1000;
   if (unitWeight) return quantity * unitWeight;
   return quantity * KG_DEFAULTS[unitType];
+}
+
+// ─── Lot helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Returns the XOF conversion rate for a currency, locked at import time.
+ * EUR/XOF is the fixed CFA peg (immutable by treaty).
+ * USD/XOF uses an approximation; the Reception form should pass the live rate
+ * as createPayload.exchangeRateAtImport to override this default.
+ */
+export function resolveXofRate(currency: 'XOF' | 'USD' | 'EUR'): number {
+  if (currency === 'XOF') return 1;
+  if (currency === 'EUR') return 655.957;
+  return 600; // USD fallback — override via createPayload.exchangeRateAtImport
+}
+
+/** Deterministic document ID for /stockView — sanitized, max 100 chars. */
+export function stockViewId(depotId: string, sku: string): string {
+  return `${depotId}_${sku}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -191,6 +210,15 @@ export function createMovement(
 
 export interface ApplyMovementOptions {
   /**
+   * Client-generated unique ID for this movement. Used as:
+   *   1. Idempotency key — if /movements/{movementId} already exists, the entire
+   *      applyMovement call is a safe no-op (protects against app-layer retries).
+   *   2. Document ID for both the global /movements/{movId} and the local
+   *      depots/{d}/stock/{s}/movements/{movId} records.
+   * Generate with: doc(collection(db, 'movements')).id  BEFORE runTransaction.
+   */
+  movementId: string;
+  /**
    * 'create' — new lot (transaction.set); requires createPayload.
    * 'update' — existing lot (transaction.get → validate → recompute → transaction.update).
    * Default: 'update'.
@@ -257,51 +285,165 @@ export async function applyMovement(
   options: ApplyMovementOptions,
 ): Promise<void> {
   validateMovementType(options);
+
+  // ① Idempotency — first read in every path. If the movement was already committed
+  //   (same movementId from an app-layer retry), return cleanly without any writes.
+  const globalMovRef = doc(db, 'movements', options.movementId);
+  const idempSnap    = await transaction.get(globalMovRef);
+  if (idempSnap.exists()) return;
+
   const mode = options.mode ?? 'update';
-  let previousQty = 0;
+  let previousQty  = 0;
   let newQty: number;
   let newCostBasis: number;
-  let unitType: UnitType = 'carton';
+  let unitType: UnitType  = 'carton';
   let unitWeight: number | undefined;
+  let lotId: string | undefined;
+  let sku:   string | undefined;
 
+  // ─────────────────────────────────────────────────────────────── CREATE ──────
   if (mode === 'create') {
     if (!options.createPayload)
       throw new Error('applyMovement: createPayload required in create mode');
+
     newQty       = options.quantityDelta;
     newCostBasis = options.costDelta;
-    unitType     = (options.createPayload.unitType as UnitType | undefined) ?? 'carton';
+    unitType     = (options.createPayload.unitType  as UnitType | undefined) ?? 'carton';
     unitWeight   = options.createPayload.unitWeight as number | undefined;
+    sku          = (options.createPayload.sku       as string)  || '';
+
+    const lotNumber = (options.createPayload.lotNumber as string) || '';
+    const depotId   = (options.createPayload.depotId  as string) || depotRef.id;
+
     validateStockItem({ quantity: newQty, costBasis: newCostBasis, unitType });
 
-    // SKU + LOT uniqueness guard — atomic check + reserve via deterministic guard doc.
-    // Race-free: transaction.get ensures snapshot isolation; transaction.set reserves the slot.
-    const guardSku     = (options.createPayload.sku      as string) || '';
-    const guardLot     = (options.createPayload.lotNumber as string) || '';
-    const guardDepotId = (options.createPayload.depotId  as string) || '';
-    if (guardSku && guardLot && guardDepotId) {
-      const guardKey = `${guardSku}_${guardLot}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
-      const guardRef = doc(db, 'depots', guardDepotId, 'lotKeys', guardKey);
-      const guardSnap = await transaction.get(guardRef);
-      if (guardSnap.exists()) {
+    // ② Lot identity — global guard at /lotGuards/{sku}_{lotNumber}.
+    //   Race-free: transaction.get establishes the snapshot; concurrent writers retry.
+    const guardKey  = sku && lotNumber
+      ? `${sku}_${lotNumber}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100)
+      : null;
+    const guardRef  = guardKey ? doc(db, 'lotGuards', guardKey)     : null;
+    const guardSnap = guardRef ? await transaction.get(guardRef) : null;
+
+    let costPriceUnitXof: number;
+
+    if (guardSnap?.exists()) {
+      // Same sku+lotNumber already exists — reuse the canonical lotId.
+      // Valid case: same physical lot split across two depots.
+      lotId = guardSnap.data().lotId as string;
+
+      // Reject if this lot is already active at THIS depot (true duplicate).
+      const existingLotStock = await transaction.get(
+        doc(db, 'depots', depotId, 'lotStock', lotId),
+      );
+      if (existingLotStock.exists() && existingLotStock.data().isActive) {
         throw new Error(
-          `Lot ${guardLot} (SKU: ${guardSku}) existe déjà au dépôt ${guardDepotId}`
+          `Lot ${lotNumber} (SKU: ${sku}) est déjà actif au dépôt ${depotId}`,
         );
       }
-      transaction.set(guardRef, {
-        sku: guardSku, lotNumber: guardLot, depotId: guardDepotId,
-        stockId: stockRef.id, createdAt: serverTimestamp(),
-      });
+
+      // Read costPriceUnitXof from the existing lot for stockView value delta.
+      const existingLot = await transaction.get(doc(db, 'lots', lotId));
+      costPriceUnitXof  = existingLot.exists()
+        ? (existingLot.data().costPriceUnitXof as number ?? 0)
+        : 0;
+    } else {
+      // ③ New lot — create /lots, /products catalog, and guard atomically.
+      lotId = doc(collection(db, 'lots')).id;
+
+      const currency    = (options.createPayload.costCurrency as 'XOF' | 'USD' | 'EUR') || 'XOF';
+      const xofRate     = (options.createPayload.exchangeRateAtImport as number | undefined)
+        ?? resolveXofRate(currency);
+      const cpUnit      = options.createPayload.costPrice as number | null ?? null;
+      costPriceUnitXof  = cpUnit != null ? cpUnit * xofRate : 0;
+
+      const lotPayload: LotDoc = {
+        lotId,
+        sku,
+        lotNumber,
+        supplier:             (options.createPayload.supplier    as string) || '',
+        containerNo:          (options.createPayload.container   as string)
+                           || (options.createPayload.containerNo as string) || '',
+        productionDate:       (options.createPayload.productionDate  as string) || '',
+        expirationDate:       (options.createPayload.expirationDate  as string) || '',
+        originalQty:          newQty,
+        unitType,
+        unitWeight:           unitWeight ?? null,
+        costPriceUnit:        cpUnit,
+        costCurrency:         currency,
+        exchangeRateAtImport: xofRate,
+        costPriceUnitXof,
+        originalDepotId:      depotId,
+        totalQuantity:        newQty,
+        status:               'active',
+        sourceDoc:            (options.createPayload.sourceDoc as LotDoc['sourceDoc']) ?? null,
+        createdAt:            serverTimestamp(),
+        createdBy:            options.userId,
+      };
+      transaction.set(doc(db, 'lots', lotId), lotPayload);
+
+      // Upsert /products catalog — merge preserves existing catalog data.
+      if (sku) {
+        transaction.set(doc(db, 'products', sku), {
+          sku,
+          productName:       options.createPayload.productName ?? sku,
+          category:          options.createPayload.category    ?? '',
+          unitTypeDefault:   unitType,
+          unitWeightDefault: unitWeight ?? null,
+          thresholdGlobal:   (options.createPayload.threshold as number) ?? 10,
+          updatedAt:         serverTimestamp(),
+        }, { merge: true });
+      }
+
+      if (guardRef) {
+        const guardPayload: LotGuardDoc = {
+          sku, lotNumber, lotId, createdAt: serverTimestamp(),
+        };
+        transaction.set(guardRef, guardPayload);
+      }
     }
 
+    // ④ LotStock — live quantity of this lot at this depot.
+    const lotStockPayload: LotStockDoc = {
+      lotId:             lotId!,
+      sku:               sku || '',
+      depotId,
+      quantity:          newQty,
+      isActive:          newQty > 0,
+      expirationSortKey: (options.createPayload.expirationDate as string) || '9999-12-31',
+      productionDate:    (options.createPayload.productionDate  as string) || '',
+      costPriceUnitXof,
+      createdAt:         serverTimestamp(),
+      updatedAt:         serverTimestamp(),
+    };
+    transaction.set(doc(db, 'depots', depotId, 'lotStock', lotId!), lotStockPayload);
+
+    // ⑤ StockView — increment numeric counters in-transaction.
+    //   earliestExpiration + fefoUrgency maintained by Cloud Function (eventual).
+    const kgCreate  = toKg(newQty, unitType, unitWeight);
+    transaction.set(doc(db, 'stockView', stockViewId(depotId, sku || '')), {
+      sku:           sku || '',
+      depotId,
+      totalQuantity: increment(newQty),
+      totalWeightKg: increment(kgCreate),
+      totalValueXof: increment(newQty * costPriceUnitXof),
+      lotsCount:     increment(1),
+      lastUpdated:   serverTimestamp(),
+    }, { merge: true });
+
+    // ⑥ Legacy stock doc — dual-written for UI compat; includes lotId as forward ref.
     transaction.set(stockRef, {
       ...options.createPayload,
       id:        stockRef.id,
+      lotId:     lotId!,
       quantity:  newQty,
       costBasis: newCostBasis,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdBy: options.userId,
     });
+
+  // ─────────────────────────────────────────────────────────────── UPDATE ──────
   } else {
     const snap = await transaction.get(stockRef);
     if (!snap.exists()) throw new Error(`Lot introuvable: ${stockRef.path}`);
@@ -311,31 +453,76 @@ export async function applyMovement(
     newCostBasis = current.costBasis + options.costDelta;
     unitType     = current.unitType;
     unitWeight   = current.unitWeight;
+    lotId        = (snap.data() as any).lotId as string | undefined;
+    sku          = current.sku;
+
     validateStockItem({ ...current, quantity: newQty, costBasis: newCostBasis });
+
+    // Legacy update (always)
     transaction.update(stockRef, {
       quantity:  newQty,
       costBasis: newCostBasis,
       updatedAt: serverTimestamp(),
     });
+
+    // Lot-based updates — Phase-0+ docs have lotId on the legacy record.
+    // Pre-Phase-0 docs without lotId skip gracefully; they'll be backfilled in Phase 1.
+    if (lotId && sku) {
+      const lotStockRef  = doc(db, 'depots', depotRef.id, 'lotStock', lotId);
+      const lotRef       = doc(db, 'lots', lotId);
+
+      const lotStockSnap = await transaction.get(lotStockRef);
+      const costXof      = lotStockSnap.exists()
+        ? (lotStockSnap.data().costPriceUnitXof as number ?? 0)
+        : 0;
+
+      transaction.update(lotStockRef, {
+        quantity:  newQty,
+        isActive:  newQty > 0,
+        updatedAt: serverTimestamp(),
+      });
+
+      transaction.update(lotRef, {
+        totalQuantity: increment(options.quantityDelta),
+        updatedAt:     serverTimestamp(),
+      });
+
+      const kgDelta  = options.quantityDelta >= 0
+        ? toKg(options.quantityDelta, unitType, unitWeight)
+        : -toKg(-options.quantityDelta, unitType, unitWeight);
+      const viewData: Record<string, unknown> = {
+        sku,
+        depotId:       depotRef.id,
+        totalQuantity: increment(options.quantityDelta),
+        totalWeightKg: increment(kgDelta),
+        totalValueXof: increment(options.quantityDelta * costXof),
+        lastUpdated:   serverTimestamp(),
+      };
+      // Decrement lotsCount exactly when this lot transitions from active to depleted.
+      if (newQty === 0 && previousQty > 0) viewData.lotsCount = increment(-1);
+      transaction.set(doc(db, 'stockView', stockViewId(depotRef.id, sku)), viewData, { merge: true });
+    }
   }
 
-  // Depot load — dual write for transition from carton-count to kg-based aggregation
+  // ⑦ Depot load — dual write: legacy unit count (UI compat) + canonical kg.
   const depotDeltaKg = options.quantityDelta >= 0
     ? toKg(options.quantityDelta, unitType, unitWeight)
     : -toKg(-options.quantityDelta, unitType, unitWeight);
   transaction.update(depotRef, {
-    current_load:    increment(options.quantityDelta), // legacy unit count (UI compat)
-    current_load_kg: increment(depotDeltaKg),          // canonical kg (mixed-unit safe)
+    current_load:    increment(options.quantityDelta),
+    current_load_kg: increment(depotDeltaKg),
     updatedAt:       serverTimestamp(),
   });
 
-  // Movement record (shared between local and global writes)
+  // ⑧ Movement records — lotId + sku always present; movementId is the idempotency key.
   const movData: Record<string, unknown> = {
     type:     options.type,
     quantity: Math.abs(options.quantityDelta),
     previousQty,
     newQty,
     reason:   options.reason,
+    lotId:    lotId ?? `legacy:${stockRef.id}`,
+    sku:      sku   ?? '',
     ...(options.notes         && { notes:         options.notes }),
     ...(options.client        && { client:        options.client }),
     ...(options.targetDepotId && { targetDepotId: options.targetDepotId }),
@@ -346,14 +533,15 @@ export async function applyMovement(
     createdAt: serverTimestamp(),
   };
 
-  // Local: depots/{depotId}/stock/{stockId}/movements/{movId} — for StockDetail view
-  const localMovRef = doc(collection(stockRef, 'movements'));
-  transaction.set(localMovRef, { id: localMovRef.id, ...movData });
+  // Local subcollection — keyed by movementId for consistent addressing.
+  const localMovRef = doc(
+    db, 'depots', depotRef.id, 'stock', stockRef.id, 'movements', options.movementId,
+  );
+  transaction.set(localMovRef, { id: options.movementId, ...movData });
 
-  // Global: /movements/{movId} — for dashboard analytics + cross-depot activity feed
-  const globalMovRef = doc(collection(db, 'movements'));
+  // Global /movements — doc ID = movementId (idempotency key).
   transaction.set(globalMovRef, {
-    id:      globalMovRef.id,
+    id:      options.movementId,
     ...movData,
     stockId: stockRef.id,
     depotId: depotRef.id,
@@ -377,6 +565,16 @@ export interface ApplyTransferOptions {
   isNewLot?: boolean;
   /** Full payload for the new destination lot. Required when isNewLot === true. */
   destCreatePayload?: Record<string, unknown>;
+  /**
+   * Idempotency key for the source debit movement.
+   * Generate with doc(collection(db,'movements')).id BEFORE runTransaction.
+   */
+  sourceMovementId: string;
+  /**
+   * Idempotency key for the destination credit movement.
+   * Must be a different ID from sourceMovementId.
+   */
+  destMovementId: string;
 }
 
 /**
@@ -399,12 +597,17 @@ export async function applyTransfer(
   destDepotRef: DocumentReference,
   options: ApplyTransferOptions,
 ): Promise<void> {
-  const { amount, costDelta, userId, userName, currentDepotName, isNewLot, destCreatePayload } = options;
+  const {
+    amount, costDelta, userId, userName,
+    currentDepotName, isNewLot, destCreatePayload,
+    sourceMovementId, destMovementId,
+  } = options;
   const reason = options.reason
     ?? (currentDepotName ? `Transfert depuis ${currentDepotName}` : 'Transfert');
 
   // Debit source
   await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+    movementId:    sourceMovementId,
     type:          'transfer',
     quantityDelta: -amount,
     costDelta:     -costDelta,
@@ -417,6 +620,7 @@ export async function applyTransfer(
 
   // Credit destination
   await applyMovement(transaction, destStockRef, destDepotRef, {
+    movementId:    destMovementId,
     mode:          isNewLot ? 'create' : 'update',
     type:          'transfer',
     quantityDelta: amount,

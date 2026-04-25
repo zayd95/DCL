@@ -22,14 +22,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
 import { applyMovement, normalizeStockItem } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  doc, 
-  runTransaction, 
-  serverTimestamp, 
+import {
+  collection,
+  query,
+  onSnapshot,
+  doc,
+  runTransaction,
+  serverTimestamp,
   increment,
   collectionGroup,
   where
@@ -127,9 +126,11 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
     setLoading(true);
     try {
-      const qty = Number(entryForm.quantity);
-      const userName = auth.currentUser?.displayName || 'Agent';
-      const userId = auth.currentUser?.uid;
+      const qty        = Number(entryForm.quantity);
+      const userName   = auth.currentUser?.displayName || 'Agent';
+      const userId     = auth.currentUser?.uid;
+      // Generate movementId BEFORE the transaction — idempotency key for app-layer retries.
+      const movementId = doc(collection(db, 'movements')).id;
 
       await runTransaction(db, async (transaction) => {
         let stockRef: ReturnType<typeof doc>;
@@ -151,6 +152,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
             status: 'stored',
           });
           await applyMovement(transaction, stockRef, doc(db, 'depots', entryForm.depotId), {
+            movementId,
             mode:          'create',
             type:          'entry',
             quantityDelta: qty,
@@ -163,12 +165,12 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
           });
         } else {
           stockRef = doc(db, 'depots', entryForm.depotId, 'stock', entryForm.stockId);
-          // Read to get finalProduct for the log message below; applyMovement re-reads internally (cached)
           const stockDoc = await transaction.get(stockRef);
           if (!stockDoc.exists()) throw new Error("Stock introuvable");
           const currentData = stockDoc.data() as any;
           finalProduct = currentData.productName ?? currentData.product;
           await applyMovement(transaction, stockRef, doc(db, 'depots', entryForm.depotId), {
+            movementId,
             type:          'entry',
             quantityDelta: qty,
             costDelta:     valueDelta,
@@ -210,18 +212,18 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
     setLoading(true);
     try {
-      const qty = Number(exitForm.quantity);
-      const userName = auth.currentUser?.displayName || 'Agent';
-      const userId = auth.currentUser?.uid;
-      const dId = exitForm.depotId;
+      const qty        = Number(exitForm.quantity);
+      const userName   = auth.currentUser?.displayName || 'Agent';
+      const userId     = auth.currentUser?.uid;
+      const dId        = exitForm.depotId;
+      const movementId = doc(collection(db, 'movements')).id;
 
       await runTransaction(db, async (transaction) => {
-        const stockRef = doc(db, 'depots', dId, 'stock', exitForm.lotId);
-        // Read inside transaction — authoritative quantity, prevents overselling
+        const stockRef  = doc(db, 'depots', dId, 'stock', exitForm.lotId);
         const stockSnap = await transaction.get(stockRef);
         if (!stockSnap.exists()) throw new Error("Lot introuvable en base");
 
-        const current = stockSnap.data() as any;
+        const current    = stockSnap.data() as any;
         const currentQty = current.quantity ?? 0;
         if (qty > currentQty) throw new Error(`Stock insuffisant (disponible: ${currentQty})`);
 
@@ -230,8 +232,8 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
           ?? (currentQty > 0 ? currentCostBasis / currentQty : 0);
         const valDelta = qty * unitVal;
 
-        // Pre-read above provides caller-level validation + costDelta; applyMovement re-reads internally (cached)
         await applyMovement(transaction, stockRef, doc(db, 'depots', dId), {
+          movementId,
           type:          'exit',
           quantityDelta: -qty,
           costDelta:     -valDelta,

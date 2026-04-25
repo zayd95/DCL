@@ -260,6 +260,77 @@ export interface ContainerInfo {
   updatedAt: any;
 }
 
+// ─── Lot system (Phase 0+) ────────────────────────────────────────────────────
+// Path: /lots/{lotId}
+
+export interface LotDoc {
+  lotId: string;
+  sku: string;
+  lotNumber: string;
+  supplier?: string;
+  containerNo?: string;
+  productionDate?: string;
+  expirationDate?: string;
+  originalQty: number;
+  unitType: UnitType;
+  unitWeight?: number | null;
+  costPriceUnit: number | null;
+  costCurrency: 'XOF' | 'USD' | 'EUR';
+  /** Rate to XOF locked at import time. 1 for XOF, 655.957 for EUR, live rate for USD. */
+  exchangeRateAtImport: number;
+  /** costPriceUnit × exchangeRateAtImport — locked for aggregation. */
+  costPriceUnitXof: number;
+  originalDepotId: string;
+  /** Global counter across all depots. Updated via increment() in applyMovement. */
+  totalQuantity: number;
+  /** Set by Cloud Function when totalQuantity reaches 0. Never written from client. */
+  status: 'active' | 'depleted' | 'archived';
+  sourceDoc?: { invoiceNo?: string; supplier?: string; pdfUrl?: string } | null;
+  createdAt: any;
+  createdBy: string;
+}
+
+// Path: /depots/{d}/lotStock/{lotId}
+export interface LotStockDoc {
+  lotId: string;
+  sku: string;
+  depotId: string;
+  quantity: number;
+  /** true when quantity > 0; enables cheap equality index instead of range query. */
+  isActive: boolean;
+  /** lot.expirationDate ?? '9999-12-31' — sentinel makes nulls sort last. */
+  expirationSortKey: string;
+  productionDate: string;
+  /** Denormalized from lot for in-transaction stockView value deltas. */
+  costPriceUnitXof: number;
+  createdAt: any;
+  updatedAt: any;
+}
+
+// Path: /stockView/{depotId}_{sku}
+export interface StockViewDoc {
+  sku: string;
+  depotId: string;
+  /** Maintained via increment() in applyMovement. */
+  totalQuantity: number;
+  totalWeightKg: number;
+  totalValueXof: number;
+  lotsCount: number;
+  /** Set by Cloud Function — may lag ~2 s. UI falls back to lotStock query if null. */
+  earliestExpiration: string | null;
+  fefoUrgency: 'ACTIVE' | 'LOW' | 'CRITICAL' | 'EXPIRED';
+  lastUpdated: any;
+}
+
+// Path: /lotGuards/{sku}_{lotNumber}
+export interface LotGuardDoc {
+  sku: string;
+  lotNumber: string;
+  /** Canonical lotId for this sku+lotNumber pair — reused across depots. */
+  lotId: string;
+  createdAt: any;
+}
+
 // ─── Legacy ───────────────────────────────────────────────────────────────────
 
 /** @deprecated use StockMovement */
