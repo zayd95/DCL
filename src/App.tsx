@@ -15,6 +15,7 @@ import { Settings as SettingsScreen } from './screens/Settings';
 import { DocumentLibrary } from './screens/DocumentLibrary';
 import { StockMovementForm } from './screens/StockMovementForm';
 import { Dashboard } from './screens/Dashboard';
+import { SystemIntegrityConsole } from './screens/SystemIntegrityConsole';
 import { ToastProvider } from './context/ToastContext';
 import { SyncStatusProvider } from './context/SyncStatusContext';
 
@@ -109,7 +110,13 @@ function AppContent() {
 
         {currentScreen === 'Settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[500] bg-white">
-            <SettingsScreen onBack={() => setCurrentScreen('inventaire')} />
+            <SettingsScreen onBack={() => setCurrentScreen('inventaire')} onNavigate={setCurrentScreen} />
+          </motion.div>
+        )}
+
+        {currentScreen === 'IntegrityConsole' && (
+          <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[510] bg-zinc-950">
+            <SystemIntegrityConsole onBack={() => setCurrentScreen('Settings')} />
           </motion.div>
         )}
 

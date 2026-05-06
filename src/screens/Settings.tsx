@@ -22,11 +22,11 @@ import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { useToast } from '../context/ToastContext';
 
 import { maintenanceService } from '../services/maintenanceService';
-import { AlertTriangle, Trash2, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, Trash2, RefreshCcw, Terminal } from 'lucide-react';
 
 import { requestNotificationPermission, initMessageListener } from '../services/PushNotificationService';
 
-export const Settings = ({ onBack }: { onBack: () => void }) => {
+export const Settings = ({ onBack, onNavigate }: { onBack: () => void; onNavigate?: (screen: string) => void }) => {
   const { showToast } = useToast();
   const [config, setConfig] = useState({
     pushEnabled: true,
@@ -261,6 +261,20 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
               )}
               <span>{saving ? 'Synchronisation...' : 'Appliquer les Paramètres'}</span>
            </button>
+        </section>
+
+        {/* Section Système */}
+        <section className="bg-zinc-900 rounded-[2.5rem] p-6 border border-zinc-800 space-y-4">
+          <div className="flex items-center gap-2 px-2">
+            <Terminal size={14} className="text-zinc-400" />
+            <h3 className="text-label font-black uppercase tracking-[0.2em] text-zinc-400">Système</h3>
+          </div>
+          <button
+            onClick={() => onNavigate?.('IntegrityConsole')}
+            className="w-full py-4 bg-zinc-800 text-zinc-200 rounded-2xl font-black uppercase text-label tracking-widest border border-zinc-700 shadow-sm hover:bg-zinc-700 transition-all flex items-center justify-center gap-2"
+          >
+            <Shield size={14} className="text-emerald-400" /> System Integrity Console
+          </button>
         </section>
 
         {/* Section Danger Zone */}
