@@ -41,6 +41,10 @@ function AppContent() {
   const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
+  // Swipe logic state
+  const [touchStart, setTouchStart] = useState<{x: number, y: number} | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{x: number, y: number} | null>(null);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, u => setUser(u));
     return () => unsubscribe();
@@ -69,6 +73,40 @@ function AppContent() {
 
   const mainTabs = ['inventaire', 'centre', 'entrees', 'depots'];
   const showBottomNav = mainTabs.includes(currentScreen);
+
+  // Swipe logic handlers
+  const minSwipeDistance = 50;
+  
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    
+    // Check if the gesture is mostly horizontal
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      const isLeftSwipe = distanceX > minSwipeDistance;
+      const isRightSwipe = distanceX < -minSwipeDistance;
+      
+      if (showBottomNav) {
+        const currentIndex = mainTabs.indexOf(currentScreen);
+        if (isLeftSwipe && currentIndex < mainTabs.length - 1) {
+          setCurrentScreen(mainTabs[currentIndex + 1]);
+        }
+        if (isRightSwipe && currentIndex > 0) {
+          setCurrentScreen(mainTabs[currentIndex - 1]);
+        }
+      }
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-surface-page overflow-hidden flex flex-col">

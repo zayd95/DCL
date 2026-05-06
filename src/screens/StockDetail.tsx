@@ -66,6 +66,74 @@ interface StockDetailProps {
   onBack: () => void;
 }
 
+const InventaireHubBlock = ({ stock, canSeeFinancials, daysToExpiry }: { stock: StockItem; canSeeFinancials: boolean; daysToExpiry: number | null }) => {
+  const unitsCount = Number(stock.units || stock.quantity || 0);
+  const uWeight = Number(stock.unitWeight || 0);
+  const displayTotalWeight = stock.stockType === 'bulk' 
+    ? (Number(stock.totalWeightKg) || 0)
+    : (unitsCount * uWeight || Number(stock.totalWeightKg) || 0);
+
+  const displayFinValue = () => {
+    if (stock.costPrice == null) {
+      return "Non défini";
+    }
+    if (!canSeeFinancials) return "🔒 Valeur restreinte";
+    const val = stock.totalValue || stock.cost_basis;
+    return `${Number(val || 0).toLocaleString()} ${stock.costCurrency || stock.currency || 'XOF'}`;
+  };
+
+  const displayExpiration = () => {
+    if (daysToExpiry === null || daysToExpiry === undefined) return null;
+    if (daysToExpiry < 15) return `⚠️ ${daysToExpiry}j restants`;
+    if (daysToExpiry < 30) return `${daysToExpiry}j restants`;
+    if (!stock.expirationDate) return null;
+    const date = new Date(stock.expirationDate);
+    if (isNaN(date.getTime())) return null;
+    return `Exp: ${date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+       <div className="flex flex-col">
+         <div className="flex justify-between items-start gap-2">
+           <h3 className="text-2xl font-black text-text-ocean uppercase leading-none">
+             {stock.stockType === 'bulk' ? `${displayTotalWeight.toLocaleString()} KG` : `${unitsCount.toLocaleString()} CTN`}
+           </h3>
+           {displayExpiration() && (
+              <div className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-black whitespace-nowrap",
+                daysToExpiry !== null && daysToExpiry < 15 ? "bg-surface-danger text-text-danger" : 
+                daysToExpiry !== null && daysToExpiry < 30 ? "bg-surface-warning text-text-warning" : 
+                "bg-surface-muted text-text-subtle"
+              )}>
+                 {displayExpiration()}
+              </div>
+           )}
+         </div>
+         
+         <div className="flex flex-col mt-1.5 gap-0.5">
+           {stock.stockType === 'unitized' && displayTotalWeight > 0 && (
+             <span className="text-[12px] font-black text-text-muted uppercase tracking-tighter">
+               {displayTotalWeight.toLocaleString()} KG
+             </span>
+           )}
+           {stock.stockType === 'unitized' && uWeight > 0 && (
+             <span className="text-[10px] font-medium text-text-subtle italic">
+               Cond: {uWeight} kg/u
+             </span>
+           )}
+         </div>
+       </div>
+
+       <div className="mt-2 pt-3 border-t border-border-subtle">
+          <p className="text-[12px] font-black text-text-ocean flex items-baseline gap-1.5">
+            {displayFinValue()}
+          </p>
+       </div>
+    </div>
+  );
+};
+
 export const StockDetail = ({ stockId, depotId, onBack }: StockDetailProps) => {
   const { data: depots } = useDepots();
   const { showToast } = useToast();
