@@ -3,275 +3,29 @@ import React, { useState, useCallback } from 'react';
 import {
   ChevronLeft, Shield, Play, CheckCircle2, AlertTriangle, XCircle,
   RefreshCw, Download, Clock, Database, RotateCcw, ChevronDown,
-  ChevronRight, Zap, Activity, AlertCircle,
+  ChevronRight, Zap, Activity,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
-import { db } from '../lib/firebase';
 import {
-  collection, collectionGroup, query, where, getDocs,
-  orderBy, limit, doc, writeBatch, serverTimestamp,
-} from 'firebase/firestore';
-import { stockViewId, toKg } from '../lib/stockService';
-import { UnitType } from '../types';
+  INTEGRITY_CHECKS, SAMPLE_LIMIT,
+  type CheckStatus, type CheckResult,
+} from '../services/integrityService';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Status display config ────────────────────────────────────────────────────
 
-type CheckStatus = 'idle' | 'running' | 'pass' | 'warn' | 'fail';
-
-interface Issue {
-  path: string;
-  detail: string;
-  severity: 'warn' | 'fail';
-}
-
-interface CheckResult {
-  id: string;
-  name: string;
-  description: string;
-  status: CheckStatus;
-  totalChecked: number;
-  issueCount: number;
-  issues: Issue[];
-  durationMs?: number;
-  repairFn?: () => Promise<void>;
-  repairLabel?: string;
-}
-
-const SAMPLE_LIMIT = 250;
-
-// ─── Check runners ────────────────────────────────────────────────────────────
-
-async function checkLegacyMigration(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const snap = await getDocs(query(collectionGroup(db, 'stock'), limit(SAMPLE_LIMIT)));
-  const issues: Issue[] = [];
-  snap.docs.forEach(d => {
-    if (!d.data().lotId) {
-      issues.push({ path: d.ref.path, detail: 'Missing lotId — pre-Phase-0 doc', severity: 'warn' });
-    }
-  });
-  const sampled = snap.size === SAMPLE_LIMIT;
-  return {
-    status: issues.length === 0 ? 'pass' : 'warn',
-    totalChecked: snap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkLotStockOrphans(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const snap = await getDocs(query(collectionGroup(db, 'lotStock'), limit(SAMPLE_LIMIT)));
-  const issues: Issue[] = [];
-  await Promise.all(snap.docs.map(async d => {
-    const { lotId } = d.data();
-    if (!lotId) {
-      issues.push({ path: d.ref.path, detail: 'Missing lotId field on lotStock doc', severity: 'fail' });
-      return;
-    }
-    const lotSnap = await getDocs(query(collection(db, 'lots'), where('lotId', '==', lotId), limit(1)));
-    if (lotSnap.empty) {
-      issues.push({ path: d.ref.path, detail: `Parent /lots/${lotId} not found`, severity: 'fail' });
-    }
-  }));
-  return {
-    status: issues.length === 0 ? 'pass' : 'fail',
-    totalChecked: snap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkCounterDrift(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'> & { driftedViews: { depotId: string; sku: string; stored: number; computed: number }[] }> {
-  const t0 = Date.now();
-  const viewsSnap = await getDocs(query(collection(db, 'stockView'), limit(50)));
-  const issues: Issue[] = [];
-  const driftedViews: { depotId: string; sku: string; stored: number; computed: number }[] = [];
-
-  await Promise.all(viewsSnap.docs.map(async viewDoc => {
-    const { sku, depotId, totalQuantity } = viewDoc.data() as { sku: string; depotId: string; totalQuantity: number };
-    if (!sku || !depotId) return;
-    const lotStockSnap = await getDocs(
-      query(collection(db, 'depots', depotId, 'lotStock'), where('sku', '==', sku)),
-    );
-    const computed = lotStockSnap.docs.reduce((s, d) => s + (d.data().quantity ?? 0), 0);
-    const drift = Math.abs((totalQuantity ?? 0) - computed);
-    if (drift > 0) {
-      issues.push({
-        path: viewDoc.ref.path,
-        detail: `totalQuantity stored=${totalQuantity ?? '?'} vs computed=${computed} (drift=${drift})`,
-        severity: drift > 5 ? 'fail' : 'warn',
-      });
-      driftedViews.push({ depotId, sku, stored: totalQuantity ?? 0, computed });
-    }
-  }));
-  return {
-    status: issues.length === 0 ? 'pass' : issues.some(i => i.severity === 'fail') ? 'fail' : 'warn',
-    totalChecked: viewsSnap.size,
-    issueCount: issues.length,
-    issues,
-    driftedViews,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkMovementIntegrity(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const snap = await getDocs(
-    query(collection(db, 'movements'), orderBy('createdAt', 'desc'), limit(SAMPLE_LIMIT)),
-  );
-  const issues: Issue[] = [];
-  snap.docs.forEach(d => {
-    const data = d.data();
-    if (!data.lotId || data.lotId === '') {
-      issues.push({ path: `movements/${d.id}`, detail: 'Missing lotId', severity: 'warn' });
-    }
-    if (!data.sku || data.sku === '') {
-      issues.push({ path: `movements/${d.id}`, detail: 'Missing sku', severity: 'warn' });
-    }
-    if (data.quantity === undefined || data.quantity < 0) {
-      issues.push({ path: `movements/${d.id}`, detail: `Invalid quantity: ${data.quantity}`, severity: 'fail' });
-    }
-  });
-  return {
-    status: issues.length === 0 ? 'pass' : issues.some(i => i.severity === 'fail') ? 'fail' : 'warn',
-    totalChecked: snap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkNegativeQuantities(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const issues: Issue[] = [];
-
-  // Check lotStock
-  const lotStockSnap = await getDocs(query(collectionGroup(db, 'lotStock'), limit(SAMPLE_LIMIT)));
-  lotStockSnap.docs.forEach(d => {
-    if ((d.data().quantity ?? 0) < 0) {
-      issues.push({ path: d.ref.path, detail: `quantity=${d.data().quantity}`, severity: 'fail' });
-    }
-  });
-
-  // Check legacy stock
-  const stockSnap = await getDocs(query(collectionGroup(db, 'stock'), limit(SAMPLE_LIMIT)));
-  stockSnap.docs.forEach(d => {
-    const qty = d.data().quantity ?? d.data().cartons ?? d.data().units ?? 0;
-    if (qty < 0) {
-      issues.push({ path: d.ref.path, detail: `quantity=${qty}`, severity: 'fail' });
-    }
-  });
-
-  return {
-    status: issues.length === 0 ? 'pass' : 'fail',
-    totalChecked: lotStockSnap.size + stockSnap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkGuardOrphans(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const snap = await getDocs(query(collection(db, 'lotGuards'), limit(SAMPLE_LIMIT)));
-  const issues: Issue[] = [];
-
-  await Promise.all(snap.docs.map(async d => {
-    const { lotId } = d.data();
-    if (!lotId) {
-      issues.push({ path: `lotGuards/${d.id}`, detail: 'Missing lotId on guard', severity: 'fail' });
-      return;
-    }
-    const lotSnap = await getDocs(query(collection(db, 'lots'), where('lotId', '==', lotId), limit(1)));
-    if (lotSnap.empty) {
-      issues.push({ path: `lotGuards/${d.id}`, detail: `Referenced /lots/${lotId} does not exist`, severity: 'fail' });
-    }
-  }));
-
-  return {
-    status: issues.length === 0 ? 'pass' : 'fail',
-    totalChecked: snap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-async function checkExpiredActiveLots(): Promise<Omit<CheckResult, 'id' | 'name' | 'description' | 'repairFn' | 'repairLabel'>> {
-  const t0 = Date.now();
-  const snap = await getDocs(
-    query(collectionGroup(db, 'lotStock'), where('isActive', '==', true), limit(SAMPLE_LIMIT)),
-  );
-  const today = new Date().toISOString().split('T')[0];
-  const issues: Issue[] = [];
-
-  snap.docs.forEach(d => {
-    const key = d.data().expirationSortKey as string | undefined;
-    if (key && key !== '9999-12-31' && key < today) {
-      issues.push({
-        path: d.ref.path,
-        detail: `Lot expired ${key} — still isActive=true (qty=${d.data().quantity}). FEFO violation.`,
-        severity: 'fail',
-      });
-    }
-  });
-
-  return {
-    status: issues.length === 0 ? 'pass' : 'fail',
-    totalChecked: snap.size,
-    issueCount: issues.length,
-    issues,
-    durationMs: Date.now() - t0,
-  };
-}
-
-// ─── Repair: sync stockView counters from lotStock ────────────────────────────
-
-async function repairCounterDrift(
-  driftedViews: { depotId: string; sku: string; stored: number; computed: number }[],
-): Promise<void> {
-  const batch = writeBatch(db);
-  await Promise.all(driftedViews.map(async ({ depotId, sku }) => {
-    const lotStockSnap = await getDocs(
-      query(collection(db, 'depots', depotId, 'lotStock'), where('sku', '==', sku)),
-    );
-    let totalQty = 0;
-    let totalKg  = 0;
-    let totalXof = 0;
-    let lotsCount = 0;
-    lotStockSnap.docs.forEach(d => {
-      const data = d.data();
-      const qty = data.quantity ?? 0;
-      totalQty  += qty;
-      totalXof  += qty * (data.costPriceUnitXof ?? 0);
-      // kg: use stored weight if available, else fall back to qty (bulk = kg)
-      totalKg   += qty * (data.unitWeight ?? 1);
-      if (data.isActive) lotsCount++;
-    });
-    batch.set(doc(db, 'stockView', stockViewId(depotId, sku)), {
-      sku, depotId,
-      totalQuantity: totalQty,
-      totalWeightKg: totalKg,
-      totalValueXof: totalXof,
-      lotsCount,
-      lastUpdated: serverTimestamp(),
-    }, { merge: true });
-  }));
-  await batch.commit();
-}
-
-// ─── UI Helpers ───────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<CheckStatus, { icon: React.ReactNode; label: string; color: string; bg: string; border: string }> = {
-  idle:    { icon: <Clock size={14} />,        label: 'En attente', color: 'text-zinc-400',   bg: 'bg-zinc-800',  border: 'border-zinc-700' },
-  running: { icon: <RefreshCw size={14} className="animate-spin" />, label: 'En cours...', color: 'text-blue-400', bg: 'bg-blue-900/30', border: 'border-blue-700' },
+const STATUS_CONFIG: Record<CheckStatus, {
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+  bg: string;
+  border: string;
+}> = {
+  idle:    { icon: <Clock size={14} />,        label: 'En attente', color: 'text-zinc-400',    bg: 'bg-zinc-800',       border: 'border-zinc-700'   },
+  running: { icon: <RefreshCw size={14} className="animate-spin" />, label: 'En cours...', color: 'text-blue-400',  bg: 'bg-blue-900/30',    border: 'border-blue-700'   },
   pass:    { icon: <CheckCircle2 size={14} />, label: 'OK',         color: 'text-emerald-400', bg: 'bg-emerald-900/30', border: 'border-emerald-700' },
-  warn:    { icon: <AlertTriangle size={14} />, label: 'Attention', color: 'text-amber-400',   bg: 'bg-amber-900/30',  border: 'border-amber-700' },
-  fail:    { icon: <XCircle size={14} />,      label: 'Échec',     color: 'text-red-400',     bg: 'bg-red-900/30',    border: 'border-red-700' },
+  warn:    { icon: <AlertTriangle size={14} />, label: 'Attention', color: 'text-amber-400',   bg: 'bg-amber-900/30',   border: 'border-amber-700'  },
+  fail:    { icon: <XCircle size={14} />,      label: 'Échec',     color: 'text-red-400',     bg: 'bg-red-900/30',     border: 'border-red-700'    },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -287,100 +41,39 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
   const [repairing, setRepairing] = useState<string | null>(null);
   const [lastRun, setLastRun]     = useState<Date | null>(null);
 
-  const CHECKS_META: { id: string; name: string; description: string; runner: () => Promise<any> }[] = [
-    {
-      id: 'legacy_migration',
-      name: 'Migration Phase 0',
-      description: 'Legacy /stock docs without lotId forward-reference (pre-Phase-0)',
-      runner: checkLegacyMigration,
-    },
-    {
-      id: 'lotstock_orphans',
-      name: 'LotStock sans parent',
-      description: 'Entrées /lotStock dont le document /lots parent est introuvable',
-      runner: checkLotStockOrphans,
-    },
-    {
-      id: 'counter_drift',
-      name: 'Dérive compteurs StockView',
-      description: 'Écart entre /stockView.totalQuantity et SUM(/lotStock.quantity)',
-      runner: checkCounterDrift,
-    },
-    {
-      id: 'movement_integrity',
-      name: 'Intégrité mouvements',
-      description: `Derniers ${SAMPLE_LIMIT} mouvements sans lotId ou sku (trail incomplet)`,
-      runner: checkMovementIntegrity,
-    },
-    {
-      id: 'negative_quantities',
-      name: 'Quantités négatives',
-      description: 'Docs lotStock ou stock avec quantity < 0 (corruption transactionnelle)',
-      runner: checkNegativeQuantities,
-    },
-    {
-      id: 'guard_orphans',
-      name: 'Guards orphelins',
-      description: '/lotGuards pointant vers un /lots inexistant (référence cassée)',
-      runner: checkGuardOrphans,
-    },
-    {
-      id: 'fefo_expired_active',
-      name: 'Lots expirés actifs',
-      description: 'Lots passé leur DLC mais toujours isActive=true (violation FEFO)',
-      runner: checkExpiredActiveLots,
-    },
-  ];
-
   const runChecks = useCallback(async (ids?: string[]) => {
     setRunning(true);
     const toRun = ids
-      ? CHECKS_META.filter(c => ids.includes(c.id))
-      : CHECKS_META;
+      ? INTEGRITY_CHECKS.filter(c => ids.includes(c.id))
+      : INTEGRITY_CHECKS;
 
-    // Seed all targeted checks as 'running'
     setResults(prev => {
       const map = new Map(prev.map(r => [r.id, r]));
       toRun.forEach(c => map.set(c.id, {
         ...(map.get(c.id) ?? { issues: [], totalChecked: 0, issueCount: 0 }),
         id: c.id, name: c.name, description: c.description,
-        status: 'running',
+        status: 'running' as CheckStatus,
       }));
-      // Preserve existing results for checks not in this run
-      CHECKS_META.forEach(c => {
+      INTEGRITY_CHECKS.forEach(c => {
         if (!map.has(c.id)) map.set(c.id, {
           id: c.id, name: c.name, description: c.description,
           status: 'idle', totalChecked: 0, issueCount: 0, issues: [],
         });
       });
-      return CHECKS_META.map(c => map.get(c.id)!);
+      return INTEGRITY_CHECKS.map(c => map.get(c.id)!);
     });
 
     for (const check of toRun) {
       try {
-        const raw = await check.runner();
-        const driftedViews = (raw as any).driftedViews as typeof raw extends { driftedViews: infer D } ? D : undefined;
-        const result: CheckResult = {
-          id:          check.id,
-          name:        check.name,
-          description: check.description,
-          status:      raw.status,
-          totalChecked: raw.totalChecked,
-          issueCount:  raw.issueCount,
-          issues:      raw.issues,
-          durationMs:  raw.durationMs,
-          ...(check.id === 'counter_drift' && driftedViews && (driftedViews as any[]).length > 0
-            ? {
-                repairLabel: 'Synchroniser compteurs',
-                repairFn: async () => repairCounterDrift(driftedViews as any),
-              }
-            : {}),
-        };
-        setResults(prev => prev.map(r => r.id === check.id ? result : r));
+        const raw = await check.run();
+        setResults(prev => prev.map(r => r.id === check.id
+          ? { id: check.id, name: check.name, description: check.description, ...raw }
+          : r,
+        ));
       } catch (err: any) {
         setResults(prev => prev.map(r => r.id === check.id ? {
-          ...r, status: 'fail',
-          issues: [{ path: 'runner', detail: err.message ?? 'Erreur interne', severity: 'fail' }],
+          ...r, status: 'fail' as CheckStatus,
+          issues: [{ path: 'runner', detail: err?.message ?? 'Erreur interne', severity: 'fail' as const }],
           issueCount: 1,
         } : r));
       }
@@ -395,7 +88,6 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
     setRepairing(check.id);
     try {
       await check.repairFn();
-      // Re-run just this check to verify
       await runChecks([check.id]);
     } finally {
       setRepairing(null);
@@ -407,29 +99,24 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
       generatedAt: new Date().toISOString(),
       lastRun: lastRun?.toISOString() ?? null,
       summary: {
-        total: results.length,
-        passed: results.filter(r => r.status === 'pass').length,
+        total:    results.length,
+        passed:   results.filter(r => r.status === 'pass').length,
         warnings: results.filter(r => r.status === 'warn').length,
         failures: results.filter(r => r.status === 'fail').length,
       },
-      checks: results,
+      checks: results.map(r => ({ ...r, repairFn: undefined })),
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href = url;
+    a.href     = url;
     a.download = `depotek-integrity-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const toggleExpand = (id: string) => {
-    setExpanded(prev => {
-      const s = new Set(prev);
-      s.has(id) ? s.delete(id) : s.add(id);
-      return s;
-    });
-  };
+  const toggleExpand = (id: string) =>
+    setExpanded(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
 
   const passed   = results.filter(r => r.status === 'pass').length;
   const warnings = results.filter(r => r.status === 'warn').length;
@@ -440,6 +127,13 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
     : failures > 0 ? 'fail'
     : warnings > 0 ? 'warn'
     : 'pass';
+
+  const displayList: CheckResult[] = hasRun || running
+    ? (results.length > 0 ? results : INTEGRITY_CHECKS.map(c => ({
+        id: c.id, name: c.name, description: c.description,
+        status: 'running' as CheckStatus, totalChecked: 0, issueCount: 0, issues: [],
+      })))
+    : [];
 
   return (
     <div className="h-screen bg-zinc-950 flex flex-col font-mono overflow-hidden max-w-[480px] mx-auto">
@@ -509,9 +203,7 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
       <AnimatePresence>
         {hasRun && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
             className="flex-shrink-0 border-b border-zinc-800 overflow-hidden"
           >
             <div className="grid grid-cols-3 divide-x divide-zinc-800">
@@ -535,7 +227,6 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
       {/* ── Check list ─────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-8">
 
-        {/* Pre-run placeholder */}
         {!hasRun && !running && (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <div className="w-16 h-16 bg-zinc-900 rounded-3xl flex items-center justify-center">
@@ -548,23 +239,18 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
               </p>
             </div>
             <div className="text-zinc-700 text-[10px] font-mono leading-relaxed text-left bg-zinc-900 rounded-xl p-4 w-full">
-              <p className="text-zinc-500 mb-2"># 7 vérifications programmées</p>
-              {CHECKS_META.map(c => (
+              <p className="text-zinc-500 mb-2"># {INTEGRITY_CHECKS.length} vérifications programmées</p>
+              {INTEGRITY_CHECKS.map(c => (
                 <p key={c.id} className="text-zinc-600">→ {c.name}</p>
               ))}
             </div>
           </div>
         )}
 
-        {/* Checks */}
-        {(hasRun || running) && (results.length > 0 ? results : CHECKS_META.map(c => ({
-          id: c.id, name: c.name, description: c.description,
-          status: 'running' as CheckStatus, totalChecked: 0, issueCount: 0, issues: [],
-        })) as CheckResult[]).map((check, idx) => {
+        {displayList.map((check, idx) => {
           const cfg      = STATUS_CONFIG[check.status];
           const isOpen   = expanded.has(check.id);
           const hasIssues = check.issueCount > 0;
-          const meta     = CHECKS_META[idx];
 
           return (
             <motion.div
@@ -572,42 +258,28 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.04 }}
-              className={cn(
-                "rounded-2xl border overflow-hidden",
-                cfg.bg, cfg.border,
-              )}
+              className={cn("rounded-2xl border overflow-hidden", cfg.bg, cfg.border)}
             >
-              {/* Check header row */}
+              {/* Row header */}
               <div
-                className={cn(
-                  "flex items-center gap-3 p-4 cursor-pointer select-none",
-                  hasIssues ? "hover:bg-white/5" : "",
-                )}
+                className={cn("flex items-center gap-3 p-4 cursor-pointer select-none", hasIssues && "hover:bg-white/5")}
                 onClick={() => hasIssues && toggleExpand(check.id)}
               >
                 <div className={cn("flex-shrink-0", cfg.color)}>{cfg.icon}</div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-zinc-200 text-xs font-bold tracking-wide truncate">
-                      {check.name}
-                    </span>
+                    <span className="text-zinc-200 text-xs font-bold tracking-wide truncate">{check.name}</span>
                     {check.durationMs !== undefined && (
-                      <span className="text-zinc-600 text-[9px] font-mono flex-shrink-0">
-                        {check.durationMs}ms
-                      </span>
+                      <span className="text-zinc-600 text-[9px] font-mono flex-shrink-0">{check.durationMs}ms</span>
                     )}
                   </div>
-                  <p className="text-zinc-500 text-[10px] mt-0.5 leading-tight truncate">
-                    {check.description}
-                  </p>
+                  <p className="text-zinc-500 text-[10px] mt-0.5 leading-tight truncate">{check.description}</p>
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {check.totalChecked > 0 && (
-                    <span className="text-zinc-600 text-[9px] font-mono">
-                      {check.totalChecked} docs
-                    </span>
+                    <span className="text-zinc-600 text-[9px] font-mono">{check.totalChecked} docs</span>
                   )}
                   {hasIssues && (
                     <span className={cn(
@@ -628,9 +300,7 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
               <AnimatePresence>
                 {isOpen && hasIssues && (
                   <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: 'auto' }}
-                    exit={{ height: 0 }}
+                    initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
                     className="overflow-hidden"
                   >
                     <div className="border-t border-zinc-800 px-4 pb-4 pt-3 space-y-1.5 max-h-48 overflow-y-auto">
@@ -643,12 +313,8 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
                             {issue.severity === 'fail' ? '✗' : '⚠'}
                           </span>
                           <div className="min-w-0">
-                            <p className="text-zinc-400 text-[10px] font-mono break-all leading-tight">
-                              {issue.path}
-                            </p>
-                            <p className="text-zinc-600 text-[10px] leading-tight mt-0.5">
-                              {issue.detail}
-                            </p>
+                            <p className="text-zinc-400 text-[10px] font-mono break-all leading-tight">{issue.path}</p>
+                            <p className="text-zinc-600 text-[10px] leading-tight mt-0.5">{issue.detail}</p>
                           </div>
                         </div>
                       ))}
@@ -662,9 +328,7 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
                     {/* Repair action */}
                     {(check.repairFn || check.repairLabel) && (
                       <div className="border-t border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
-                        <p className="text-zinc-500 text-[10px]">
-                          Réparation automatique disponible
-                        </p>
+                        <p className="text-zinc-500 text-[10px]">Réparation automatique disponible</p>
                         <button
                           onClick={() => handleRepair(check)}
                           disabled={repairing === check.id}
@@ -681,11 +345,11 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
                 )}
               </AnimatePresence>
 
-              {/* Rerun single check */}
+              {/* Re-run single check */}
               {check.status !== 'running' && check.status !== 'idle' && (
                 <div className="px-4 pb-3 flex justify-end">
                   <button
-                    onClick={(e) => { e.stopPropagation(); runChecks([check.id]); }}
+                    onClick={e => { e.stopPropagation(); runChecks([check.id]); }}
                     disabled={running}
                     className="text-zinc-600 hover:text-zinc-400 text-[9px] font-mono flex items-center gap-1 transition-colors disabled:opacity-30"
                   >
@@ -706,9 +370,7 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
             Firestore · échantillon max {SAMPLE_LIMIT} docs / collection
           </span>
         </div>
-        <span className="text-zinc-700 text-[10px] font-mono">
-          Phase 0
-        </span>
+        <span className="text-zinc-700 text-[10px] font-mono">Phase 0</span>
       </div>
     </div>
   );
