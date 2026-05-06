@@ -230,8 +230,8 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
   };
 
   return (
-    <div className="h-screen bg-[#F8FAFC] max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
-      <header className="bg-ocean-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-50">
+    <div className="h-screen bg-surface-page max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
+      <header className="bg-brand-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-50">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl p-6" />
         <div className="flex items-center justify-between relative z-10 mb-6">
           <button onClick={onBack} className="p-2 bg-white/10 rounded-xl text-white transition-colors">
@@ -243,7 +243,7 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
               onClick={() => setIsSelectionMode(!isSelectionMode)}
               className={cn(
                 "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
-                isSelectionMode ? "bg-white text-ocean-dark" : "bg-white/10 text-white/60 hover:text-white"
+                isSelectionMode ? "bg-white text-brand-dark" : "bg-white/10 text-white/60 hover:text-white"
               )}
              >
                 <CheckSquare size={20} />
@@ -281,8 +281,8 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
                key={cat}
                onClick={() => setActiveCategory(cat as any)}
                className={cn(
-                 "px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                 activeCategory === cat ? "bg-white text-ocean-dark shadow-lg" : "bg-white/10 text-white/50 border border-white/5"
+                 "px-6 py-2.5 rounded-2xl text-label font-black uppercase tracking-widest transition-all whitespace-nowrap",
+                 activeCategory === cat ? "bg-white text-brand-dark shadow-lg" : "bg-white/10 text-white/50 border border-white/5"
                )}
              >
                 {getCatLabel(cat)}
@@ -294,9 +294,9 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
       {/* CONTENT */}
       <div className="flex-1 p-6 pb-32 overflow-y-auto no-scrollbar scroll-smooth">
          {loading ? (
-            <div className="py-20 text-center text-slate-300">
-               <div className="w-10 h-10 border-4 border-slate-100 border-t-ocean-primary rounded-full animate-spin mx-auto mb-4" />
-               <p className="text-[10px] font-black uppercase tracking-widest">Accès aux dossiers...</p>
+            <div className="py-20 text-center text-text-muted">
+               <div className="w-10 h-10 border-4 border-border-default border-t-ocean-primary rounded-full animate-spin mx-auto mb-4" />
+               <p className="text-label font-black uppercase tracking-widest">Accès aux dossiers...</p>
             </div>
          ) : filteredDocs.length === 0 ? (
             <div className="py-20 text-center opacity-20 flex flex-col items-center">
@@ -307,7 +307,7 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
            <div className="space-y-10">
               {Object.entries(groupedDocs).map(([group, docs]) => (
                 <div key={group} className="space-y-4">
-                   <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em] pl-4">{group}</h3>
+                   <h3 className="text-label font-black text-text-muted uppercase tracking-[0.3em] pl-4">{group}</h3>
                    <div className="space-y-3">
                       {docs.map(doc => (
                         <DocItem 
@@ -369,10 +369,10 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[440px] bg-slate-900 rounded-3xl p-4 shadow-2xl flex items-center justify-between z-[150] border border-white/10"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[90%] max-w-[440px] bg-brand-ink rounded-3xl p-4 shadow-2xl flex items-center justify-between z-[150] border border-white/10"
           >
              <div className="pl-2">
-                <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Sélection</p>
+                <p className="text-label font-black text-white/40 uppercase tracking-widest">Sélection</p>
                 <p className="text-sm font-black text-white uppercase">{selectedDocIds.size} Doc{selectedDocIds.size > 1 ? 's' : ''}</p>
              </div>
              
@@ -412,7 +412,7 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }} 
               onClick={() => setLinkingDoc(null)}
-              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200]" 
+              className="fixed inset-0 bg-brand-ink/60 backdrop-blur-sm z-[200]" 
             />
             <motion.div 
               initial={{ y: "100%" }} 
@@ -421,33 +421,33 @@ export const DocumentLibrary = ({ onBack }: { onBack: () => void }) => {
               className="fixed bottom-0 left-0 w-full bg-white rounded-t-[3.5rem] p-8 z-[210] shadow-2xl"
             >
               <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8" />
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-2">Lier le document</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">{linkingDoc.fileName}</p>
+              <h3 className="text-xl font-black text-text-primary uppercase tracking-tight mb-2">Lier le document</h3>
+              <p className="text-xs font-bold text-text-muted uppercase tracking-widest mb-8">{linkingDoc.fileName}</p>
               
               <div className="space-y-3 max-h-[40vh] overflow-y-auto no-scrollbar mb-8">
                  {activeContainers.map(c => (
                    <button 
                     key={c.id}
                     onClick={() => handleManualLink(c)}
-                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-ocean-primary hover:bg-white transition-all"
+                    className="w-full p-4 bg-surface-subtle border border-border-default rounded-2xl flex items-center justify-between group hover:border-brand hover:bg-white transition-all"
                    >
                       <div className="flex items-center gap-3">
-                         <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-slate-400 group-hover:text-ocean-primary">
+                         <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-text-muted group-hover:text-brand">
                             <Ship size={16} />
                          </div>
                          <div className="text-left">
-                            <div className="text-xs font-black text-slate-900 uppercase tracking-tight">{c.containerNumber}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{c.origin}</div>
+                            <div className="text-xs font-black text-text-primary uppercase tracking-tight">{c.containerNumber}</div>
+                            <div className="text-label font-bold text-text-muted uppercase tracking-tighter">{c.origin}</div>
                          </div>
                       </div>
-                      <Plus size={16} className="text-slate-300 group-hover:text-ocean-primary" />
+                      <Plus size={16} className="text-text-muted group-hover:text-brand" />
                    </button>
                  ))}
               </div>
 
               <button 
                 onClick={() => setLinkingDoc(null)}
-                className="w-full py-5 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest"
+                className="w-full py-5 bg-surface-subtle text-text-muted rounded-2xl font-black uppercase text-xs tracking-widest"
               >
                 Annuler
               </button>
@@ -468,7 +468,7 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
       onClick={() => isSelectionMode && onSelect?.()}
       className={cn(
       "bg-white rounded-3xl border shadow-sm relative group transition-all cursor-pointer",
-      isSelected ? "border-ocean-primary ring-2 ring-ocean-primary/20" : "border-slate-100",
+      isSelected ? "border-brand ring-2 ring-ocean-primary/20" : "border-border-default",
       viewMode === 'grid' ? "p-4 flex flex-col gap-4" : "p-4 flex items-center justify-between gap-4"
     )}>
        <div className={cn(
@@ -485,7 +485,7 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
              {isSelectionMode && (
                <div className={cn(
                  "absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm transition-all",
-                 isSelected ? "bg-ocean-primary text-white" : "bg-white text-slate-200"
+                 isSelected ? "bg-brand text-white" : "bg-white text-slate-200"
                )}>
                   {isSelected && <CheckSquare size={10} />}
                </div>
@@ -493,41 +493,41 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
           </div>
           <div className="flex-1 min-w-0">
              <div className="flex items-center gap-2 mb-1">
-                <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight truncate max-w-[180px]">
+                <h4 className="text-xs font-black text-text-primary uppercase tracking-tight truncate max-w-[180px]">
                    {doc.fileName}
                 </h4>
-                <span className="text-[8px] font-black text-ocean-primary bg-ocean-soft px-1.5 py-0.5 rounded-md uppercase">
+                <span className="text-micro font-black text-brand bg-surface-subtle px-1.5 py-0.5 rounded-md uppercase">
                    {getCatLabel(doc.category)}
                 </span>
              </div>
              {/* SMART LOGISTICS PREVIEW (IA) - PAD HUB SÉNÉGAL */}
              {doc.linkedContainer && data && (
-               <div className="mt-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 flex flex-col gap-2 shadow-inner">
+               <div className="mt-3 p-3 bg-surface-subtle/80 rounded-2xl border border-border-default flex flex-col gap-2 shadow-inner">
                  <div className="flex items-baseline justify-between gap-2 overflow-hidden">
                    <div className="flex items-center gap-1.5 shrink-0 overflow-hidden">
-                      <Truck size={10} className="text-ocean-primary" />
-                      <span className="text-[9px] font-black text-[#0d1642] uppercase tracking-[0.1em] truncate">
+                      <Truck size={10} className="text-brand" />
+                      <span className="text-micro font-black text-brand-dark uppercase tracking-[0.1em] truncate">
                         {data.containerNumber || doc.linkedContainer}
                       </span>
                    </div>
                    {data.supplier && (
-                     <span className="text-[7px] font-black text-ocean-primary uppercase truncate tracking-tighter bg-ocean-soft px-1.5 py-0.5 rounded-md border border-ocean-soft">
+                     <span className="text-micro font-black text-brand uppercase truncate tracking-tighter bg-surface-subtle px-1.5 py-0.5 rounded-md border border-ocean-soft">
                        {data.supplier}
                      </span>
                    )}
                  </div>
                  
                  {data.products && data.products.length > 0 && (
-                   <div className="flex items-center gap-2 pt-2 border-t border-slate-200/50">
-                      <div className="w-5 h-5 bg-white rounded-lg flex items-center justify-center text-ocean-primary shadow-sm border border-slate-100 shrink-0">
+                   <div className="flex items-center gap-2 pt-2 border-t border-border-default/50">
+                      <div className="w-5 h-5 bg-white rounded-lg flex items-center justify-center text-brand shadow-sm border border-border-default shrink-0">
                          <Package size={10} />
                       </div>
                       <div className="flex-1 min-w-0">
                          <div className="flex items-center justify-between w-full">
-                            <p className="text-[9px] font-black text-slate-700 truncate uppercase tracking-tight">
+                            <p className="text-micro font-black text-slate-700 truncate uppercase tracking-tight">
                                {data.products[0].name}
                             </p>
-                            <span className="text-[9px] font-black text-ocean-primary leading-none shrink-0 tabular-nums">
+                            <span className="text-micro font-black text-brand leading-none shrink-0 tabular-nums">
                                {data.products[0].quantity} CTN
                             </span>
                          </div>
@@ -541,21 +541,21 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
              {data && (
                <div className="space-y-1">
                  {(data.supplier || data.invoiceNumber) && (
-                   <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight flex items-center gap-2">
+                   <p className="text-micro font-bold text-text-secondary uppercase tracking-tight flex items-center gap-2">
                      {data.supplier && <span className="truncate max-w-[100px]">{data.supplier}</span>}
                      {data.supplier && data.invoiceNumber && <span className="text-slate-200">|</span>}
-                     {data.invoiceNumber && <span className="text-slate-400">#{data.invoiceNumber}</span>}
+                     {data.invoiceNumber && <span className="text-text-muted">#{data.invoiceNumber}</span>}
                    </p>
                  )}
                  {data.products && data.products.length > 0 && (
                    <div className="flex flex-wrap gap-1">
                      {data.products.slice(0, 2).map((p: any, i: number) => (
-                       <span key={i} className="text-[8px] font-bold bg-slate-50 text-slate-400 px-1.5 py-0.5 rounded uppercase max-w-[80px] truncate">
+                       <span key={i} className="text-micro font-bold bg-surface-subtle text-text-muted px-1.5 py-0.5 rounded uppercase max-w-[80px] truncate">
                          {p.name}
                        </span>
                      ))}
                      {data.products.length > 2 && (
-                       <span className="text-[8px] font-bold text-slate-300">+{data.products.length - 2}</span>
+                       <span className="text-micro font-bold text-text-muted">+{data.products.length - 2}</span>
                      )}
                    </div>
                  )}
@@ -564,11 +564,11 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
 
              <div className="mt-2 flex items-center gap-2">
                 {doc.linkedContainer ? (
-                   <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-[8px] font-black uppercase">
+                   <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-50 text-green-600 rounded-md text-micro font-black uppercase">
                       <LinkIcon size={8} /> {doc.linkedContainer}
                    </div>
                 ) : (
-                   <span className="text-[8px] font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-tighter">
+                   <span className="text-micro font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded-md uppercase tracking-tighter">
                       ⚠️ Non lié
                    </span>
                 )}
@@ -580,17 +580,17 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
          "flex gap-1",
          viewMode === 'grid' ? "justify-between w-full mt-2" : ""
        )}>
-          <button className="p-2 text-slate-300 hover:text-ocean-primary transition-colors">
+          <button className="p-2 text-text-muted hover:text-brand transition-colors">
              <Eye size={18} />
           </button>
           <div className="relative">
-             <button onClick={() => setShowOptions(!showOptions)} className="p-2 text-slate-300">
+             <button onClick={() => setShowOptions(!showOptions)} className="p-2 text-text-muted">
                 <MoreVertical size={18} />
              </button>
              {showOptions && (
                <>
                  <div className="fixed inset-0 z-10" onClick={() => setShowOptions(false)} />
-                 <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-900 text-white rounded-2xl p-2 shadow-2xl z-20 flex flex-col gap-1 overflow-hidden">
+                 <div className="absolute right-0 bottom-full mb-2 w-48 bg-brand-ink text-white rounded-2xl p-2 shadow-2xl z-20 flex flex-col gap-1 overflow-hidden">
                     <OptionItem 
                       icon={<LinkIcon size={14} />} 
                       label={doc.linkedContainer ? "Modifier le lien" : "Lier au conteneur"} 
@@ -601,7 +601,7 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
                     />
                     {data && (
                       <OptionItem 
-                        icon={<Scan size={14} className="text-ocean-primary" />} 
+                        icon={<Scan size={14} className="text-brand" />} 
                         label="OCR Détails" 
                         onClick={() => {
                           onOCRClick?.();
@@ -621,7 +621,7 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
                     <OptionItem icon={<Archive size={14} />} label="Archiver" />
                     <button 
                       onClick={onDelete}
-                      className="flex items-center gap-3 w-full px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-[10px] font-black uppercase tracking-tight"
+                      className="flex items-center gap-3 w-full px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-xl transition-colors text-label font-black uppercase tracking-tight"
                     >
                        <Trash2 size={14} /> Supprimer
                     </button>
@@ -635,7 +635,7 @@ const DocItem = ({ doc, viewMode, onDelete, onLink, isSelected, onSelect, isSele
 };
 
 const OptionItem = ({ icon, label, onClick }: any) => (
-  <button onClick={onClick} className="flex items-center gap-3 w-full px-3 py-2 hover:bg-white/10 rounded-xl transition-colors text-[10px] font-black uppercase tracking-tight text-white/70 hover:text-white">
+  <button onClick={onClick} className="flex items-center gap-3 w-full px-3 py-2 hover:bg-white/10 rounded-xl transition-colors text-label font-black uppercase tracking-tight text-white/70 hover:text-white">
      {icon} {label}
   </button>
 );
@@ -713,17 +713,17 @@ const OCRCorrectionModal = ({ doc: docEntry, onClose, onSave }: { doc: DocumentE
 
   return (
     <>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300]" onClick={onClose} />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-brand-ink/60 backdrop-blur-sm z-[300]" onClick={onClose} />
       <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="fixed bottom-0 left-0 w-full bg-white rounded-t-[3.5rem] p-8 z-[310] shadow-2xl">
         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8" />
         <div className="flex items-center justify-between mb-8">
            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-ocean-soft rounded-2xl flex items-center justify-center text-ocean-primary">
+              <div className="w-14 h-14 bg-surface-subtle rounded-2xl flex items-center justify-center text-brand">
                  <Scan size={28} />
               </div>
               <div>
-                 <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Détails IA (OCR)</h3>
-                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Vérification PAD HUB SÉNÉGAL</p>
+                 <h3 className="text-xl font-black text-text-primary uppercase tracking-tight">Détails IA (OCR)</h3>
+                 <p className="text-label font-black text-text-muted uppercase tracking-widest leading-none mt-1">Vérification PAD HUB SÉNÉGAL</p>
               </div>
            </div>
            
@@ -731,8 +731,8 @@ const OCRCorrectionModal = ({ doc: docEntry, onClose, onSave }: { doc: DocumentE
              onClick={handleGeminiAnalysis}
              disabled={analyzing}
              className={cn(
-               "flex items-center gap-2 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all",
-               analyzing ? "bg-slate-100 text-slate-400" : "bg-ocean-soft text-ocean-primary border border-ocean-primary/20 hover:bg-ocean-primary hover:text-white"
+               "flex items-center gap-2 px-4 py-3 rounded-xl font-black text-label uppercase tracking-wider transition-all",
+               analyzing ? "bg-surface-subtle text-text-muted" : "bg-surface-subtle text-brand border border-brand/20 hover:bg-brand hover:text-white"
              )}
            >
              {analyzing ? (
@@ -778,11 +778,11 @@ const OCRCorrectionModal = ({ doc: docEntry, onClose, onSave }: { doc: DocumentE
         </div>
 
         <div className="flex gap-3">
-           <button onClick={onClose} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-xs tracking-widest">Annuler</button>
+           <button onClick={onClose} className="flex-1 py-5 bg-surface-subtle text-text-muted rounded-2xl font-black uppercase text-xs tracking-widest">Annuler</button>
            <button 
              onClick={handleSave} 
              disabled={loading}
-             className="flex-[2] py-5 bg-ocean-primary text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-ocean-primary/20 flex items-center justify-center gap-2"
+             className="flex-[2] py-5 bg-brand text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-brand/20 flex items-center justify-center gap-2"
            >
               {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckSquare size={16} />}
               Sauvegarder
@@ -795,16 +795,16 @@ const OCRCorrectionModal = ({ doc: docEntry, onClose, onSave }: { doc: DocumentE
 
 const InputGroup = ({ label, icon, value, onChange, type = "text" }: any) => (
   <div className="space-y-1.5">
-     <label className="text-[10px] font-black text-slate-300 uppercase tracking-widest ml-1">{label}</label>
+     <label className="text-label font-black text-text-muted uppercase tracking-widest ml-1">{label}</label>
      <div className="relative">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-ocean-primary opacity-40">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-brand opacity-40">
            {icon}
         </div>
         <input 
            type={type}
            value={value}
            onChange={(e) => onChange(e.target.value)}
-           className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 text-sm font-black text-slate-900 outline-none focus:ring-4 focus:ring-ocean-primary/5 transition-all"
+           className="w-full bg-surface-subtle border border-border-default rounded-2xl p-4 pl-12 text-sm font-black text-text-primary outline-none focus:ring-4 focus:ring-brand/5 transition-all"
         />
      </div>
   </div>
@@ -829,7 +829,7 @@ const getDocColor = (cat: DocCategory) => {
     case 'bill_of_lading': return 'bg-amber-50 text-amber-500';
     case 'sanitary_certificate': return 'bg-green-50 text-green-500';
     case 'customs': return 'bg-purple-50 text-purple-500';
-    default: return 'bg-slate-100 text-slate-500';
+    default: return 'bg-surface-subtle text-text-secondary';
   }
 };
 

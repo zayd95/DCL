@@ -15,6 +15,7 @@ import { Settings as SettingsScreen } from './screens/Settings';
 import { DocumentLibrary } from './screens/DocumentLibrary';
 import { StockMovementForm } from './screens/StockMovementForm';
 import { Dashboard } from './screens/Dashboard';
+import { SystemIntegrityConsole } from './screens/SystemIntegrityConsole';
 import { ToastProvider } from './context/ToastContext';
 import { SyncStatusProvider } from './context/SyncStatusContext';
 
@@ -58,7 +59,7 @@ function AppContent() {
           </motion.div>
           <h1 className="text-4xl font-black tracking-tighter mb-2 uppercase">DEPOTEK</h1>
           <p className="text-xs font-bold text-white/50 uppercase tracking-[0.2em] mb-12">OS LOGISTIQUE V2.0 ENTERPRISE</p>
-          <button onClick={signInWithGoogle} className="w-full bg-white text-ocean-primary py-6 rounded-3xl font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all text-sm">Entrer sur DEPOTEK</button>
+          <button onClick={signInWithGoogle} className="w-full bg-white text-brand py-6 rounded-3xl font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all text-sm">Entrer sur DEPOTEK</button>
         </div>
       </div>
     );
@@ -108,12 +109,7 @@ function AppContent() {
   };
 
   return (
-    <div 
-      className="fixed inset-0 bg-[#F8FAFC] overflow-hidden flex flex-col"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
+    <div className="fixed inset-0 bg-surface-page overflow-hidden flex flex-col">
       {/* Tab Screens (Persistent) */}
       <div className={cn("flex-1 h-full overflow-hidden", currentScreen === 'inventaire' ? 'block' : 'hidden')}>
         <StockHome onNavigate={setCurrentScreen} onSelectStock={handleNavigateToDetail} />
@@ -152,7 +148,13 @@ function AppContent() {
 
         {currentScreen === 'Settings' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[500] bg-white">
-            <SettingsScreen onBack={() => setCurrentScreen('inventaire')} />
+            <SettingsScreen onBack={() => setCurrentScreen('inventaire')} onNavigate={setCurrentScreen} />
+          </motion.div>
+        )}
+
+        {currentScreen === 'IntegrityConsole' && (
+          <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[510] bg-zinc-950">
+            <SystemIntegrityConsole onBack={() => setCurrentScreen('Settings')} />
           </motion.div>
         )}
 
@@ -163,7 +165,7 @@ function AppContent() {
         )}
 
         {currentScreen === 'StockDetail' && selectedStockId && (
-          <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[500] bg-white border-l border-gray-100">
+          <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed inset-0 z-[500] bg-white border-l border-border-default">
             <StockDetail stockId={selectedStockId} depotId={selectedDepotId} onBack={() => setCurrentScreen('inventaire')} />
           </motion.div>
         )}

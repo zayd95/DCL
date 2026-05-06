@@ -18,29 +18,33 @@ export function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-SN');
 }
 
+/** Days from now until the given date. Negative means already past. Returns null if no date. */
+export function daysUntil(date: string | Date | undefined | null): number | null {
+  if (!date) return null;
+  return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
+}
+
+/** True if the given date is in the past (or today). */
+export function isDateExpired(date: string | Date | undefined | null): boolean {
+  const days = daysUntil(date);
+  return days !== null && days <= 0;
+}
+
 export function isFefoAlert(item: any) {
   if (!item) return false;
-  
-  // Scoring logic integration
-  const score = item.fefo_score || 0;
-  
-  // Aging logic
-  let agingDays = 0;
-  if (item.aging_days !== undefined) {
-    agingDays = item.aging_days;
-  } else if (item.arrival_date) {
-    const arrivalDate = new Date(item.arrival_date);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - arrivalDate.getTime());
-    agingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  }
-  
+  // Prefer canonical fields; fall back to deprecated aliases for old Firestore docs
+  const score     = item.fefoScore   ?? item.fefo_score   ?? 0;
+  const agingDays = item.agingDays   ?? item.aging_days   ?? 0;
   return agingDays > 90 || score > 60;
 }
 
 export function isLowStockAlert(item: any) {
-  if (!item || item.min_threshold === undefined) return false;
-  return item.cartons <= item.min_threshold && item.status !== 'delivered';
+  if (!item) return false;
+  // quantity is canonical; cartons/units are backward-compat aliases
+  const qty = item.quantity ?? item.cartons ?? item.units ?? 0;
+  const threshold = item.threshold ?? item.min_threshold;
+  if (threshold === undefined || threshold === null) return false;
+  return qty <= threshold && item.status !== 'delivered';
 }
 
 export function handleFirestoreError(error: any, operationType: string, path: string | null = null, auth: any = null) {
@@ -111,64 +115,75 @@ export function getStatusColor(expirationDate: string | null, quantity: number, 
  * Unifies stock data calculation and normalization for Dakar Cold Link HUB.
  * Ensures consistent storage between creation and update.
  */
-export function computeStockPayload(input: any) {
-  const stockType = input.stockType || 'unitized';
-  const units = stockType === 'unitized' ? (Number(input.units) || null) : null;
+/**
+ * Produces a canonical StockItem payload for Firestore writes.
+ * Outputs ONLY canonical camelCase fields — no legacy aliases.
+ * Call normalizeStockItem() when reading back from Firestore.
+ */
+export function computeStockPayload(input: any): Omit<import('../types').StockItem, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'editLog' | 'photos' | 'issueFlags'> {
+  const stockType: 'unitized' | 'bulk' = input.stockType ?? 'unitized';
+
+  // Accept both form field names and canonical names
+  const rawUnits = input.units ?? input.cartons;
+  const unitQty  = stockType === 'unitized' ? (Number(rawUnits) || null) : null;
   const unitWeight = stockType === 'unitized' ? (Number(input.unitWeight) || null) : null;
-  
-  // Cost normalization
-  const rawCost = input.costPrice !== undefined ? input.costPrice : input.unitPrice;
-  const costPrice = (rawCost !== '' && rawCost !== null && rawCost !== undefined) ? Number(rawCost) : null;
-  
-  // Weight logic
+
+  const rawCost = input.costPrice !== undefined ? input.costPrice : (input.unitPrice ?? null);
+  const costPrice = (rawCost !== '' && rawCost !== null && rawCost !== undefined)
+    ? Number(rawCost) : null;
+
   let totalWeightKg = 0;
   if (stockType === 'unitized') {
-    totalWeightKg = (units || 0) * (unitWeight || 0);
+    totalWeightKg = (unitQty || 0) * (unitWeight || 0);
   } else {
-    totalWeightKg = Number(input.totalWeightKg) || 0;
+    totalWeightKg = Number(input.totalWeightKg ?? input.kg) || 0;
   }
 
-  // Financial logic
-  let totalValue = null;
+  // quantity: unit count for unitized, kg for bulk
+  const quantity = unitQty ?? totalWeightKg;
+
+  const UNIT_TYPES = ['carton', 'palette', 'kg', 'tonne', 'litre', 'piece'];
+  const unitType = UNIT_TYPES.includes(input.unitType)
+    ? input.unitType
+    : (stockType === 'bulk' ? 'kg' : 'carton');
+
+  const costPer: 'unit' | 'kg' = input.costPer ?? (stockType === 'unitized' ? 'unit' : 'kg');
+  let costBasis = 0;
   if (costPrice !== null) {
-    const cp = input.costPer || (stockType === 'unitized' ? 'unit' : 'kg');
-    if (cp === 'kg') {
-      totalValue = totalWeightKg * costPrice;
-    } else {
-      totalValue = (units || 0) * costPrice;
-    }
+    costBasis = costPer === 'kg' ? totalWeightKg * costPrice : quantity * costPrice;
   }
 
-  const productName = input.productName || input.product || 'Sans nom';
-  const depotId = input.depotId || input.depot_id || 'unassigned';
+  const productName = input.productName ?? input.product ?? 'Sans nom';
+  const depotId     = input.depotId ?? input.depot_id ?? 'unassigned';
+  const threshold   = Number(input.threshold ?? input.min_threshold) || 10;
+  const arrivalDate = input.arrivalDate ?? input.arrival_date ?? new Date().toISOString();
 
   return {
-    sku: input.sku || '',
-    productName: productName,
-    product: productName, // Backward compat
-    category: input.category || '',
-    stockType: stockType,
-    units: units,
-    cartons: units || 0, // Backward compat
-    quantity: units || totalWeightKg, // Used in multi-depot queries
-    unitWeight: unitWeight,
-    totalWeightKg: totalWeightKg,
-    costPrice: costPrice,
-    unitPrice: costPrice, // Backward compat
-    cost_basis: totalValue || 0,
-    totalValue: totalValue,
-    depotId: depotId,
-    depot_id: depotId,
-    lotNumber: input.lotNumber || input.lot || '',
-    expirationDate: input.expirationDate || input.expiration || '',
-    container: input.container || '',
-    supplier: input.supplier || '',
-    location: input.location || '',
-    threshold: Number(input.threshold) || 10,
-    productionDate: input.productionDate || '',
-    costPer: input.costPer || (stockType === 'unitized' ? 'unit' : 'kg'),
-    costCurrency: input.costCurrency || 'XOF',
-    derivedFromContainer: !!input.container,
-    status: input.status || 'active',
+    sku:          input.sku          ?? '',
+    productName,
+    category:     input.category     ?? '',
+    supplier:     input.supplier     ?? '',
+    container:    input.container    ?? '',
+    lotNumber:    input.lotNumber    ?? input.lot ?? '',
+    depotId,
+    location:     input.location     ?? '',
+    stockType,
+    unitType,
+    quantity,
+    unitWeight,
+    totalWeightKg,
+    costPrice,
+    costPer,
+    costCurrency: input.costCurrency ?? 'XOF',
+    costBasis,
+    productionDate: input.productionDate ?? '',
+    expirationDate: input.expirationDate ?? input.expiration ?? '',
+    arrivalDate,
+    agingDays:   input.agingDays   ?? input.aging_days   ?? 0,
+    fefoScore:   input.fefoScore   ?? input.fefo_score   ?? 0,
+    status:      input.status      ?? 'stored',
+    threshold,
+    transferRef: input.transferRef,
+    sourceDoc:   input.sourceDoc,
   };
 }

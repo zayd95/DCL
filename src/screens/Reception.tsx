@@ -31,22 +31,23 @@ import { cn, computeStockPayload } from '../lib/utils';
 import { db, auth } from '../lib/firebase';
 import { 
   collection, 
-  query, 
-  where, 
-  onSnapshot, 
+  query,
+  where,
+  onSnapshot,
   doc,
   getDocs,
   writeBatch,
   runTransaction,
-  serverTimestamp, 
-  orderBy, 
-  limit, 
+  serverTimestamp,
+  orderBy,
+  limit,
   increment,
-  Timestamp
+  Timestamp,
 } from 'firebase/firestore';
 import { useToast } from '../context/ToastContext';
 import { useDepots, useUnreadAlerts } from './StockHome';
-import { ContainerInfo, DocumentEntry, StockStatus, DocCategory } from '../types';
+import { ContainerInfo, DocumentEntry, StockStatus, DocCategory, LotDoc, LotStockDoc, LotGuardDoc } from '../types';
+import { resolveXofRate, stockViewId } from '../lib/stockService';
 import { analyzeLogisticsDocument } from '../services/geminiService';
 import { compressImage } from '../services/imageCompressionService';
 import { trackingService, TrackingData, Milestone } from '../services/trackingService';
@@ -305,6 +306,9 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       const firstProduct = dataToUse.products?.[0] || { name: 'Produit Inconnu', quantity: 0 };
       const estimatedValue = (firstProduct.quantity || 0) * 15000;
 
+      // Generate lot ID before the transaction — same ID reused on retries (idempotent).
+      const preLotId = doc(collection(db, 'lots')).id;
+
       await runTransaction(db, async (transaction) => {
         // 1. Mark doc as PROCESSED
         const docRef = doc(collection(db, 'document_library'));
@@ -336,14 +340,108 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
           status: 'stored'
         });
 
+        // ── Phase 0: lot identity ────────────────────────────────────────────
+        const sku       = calculatedPayload.sku || '';
+        const lotNumber = calculatedPayload.lotNumber || containerNo.slice(-8);
+        const currency  = (calculatedPayload.costCurrency || 'XOF') as 'XOF' | 'USD' | 'EUR';
+        const xofRate   = resolveXofRate(currency);
+        const cpUnit    = calculatedPayload.costPrice ?? null;
+        const cpXof     = cpUnit != null ? cpUnit * xofRate : 0;
+        const qty       = Number(calculatedPayload.quantity ?? calculatedPayload.totalWeightKg ?? 0);
+
+        let resolvedLotId = preLotId;
+
+        if (sku) {
+          const guardKey  = `${sku}_${lotNumber}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+          const guardRef  = doc(db, 'lotGuards', guardKey);
+          const guardSnap = await transaction.get(guardRef);
+
+          if (guardSnap.exists()) {
+            // Same lot already received at another depot — reuse canonical lotId.
+            resolvedLotId = guardSnap.data().lotId as string;
+          } else {
+            // New lot — create /lots, /products, guard atomically.
+            const lotPayload: LotDoc = {
+              lotId:                resolvedLotId,
+              sku,
+              lotNumber,
+              supplier:             calculatedPayload.supplier             || '',
+              containerNo:          calculatedPayload.container            || containerNo,
+              productionDate:       calculatedPayload.productionDate       || '',
+              expirationDate:       calculatedPayload.expirationDate       || '',
+              originalQty:          qty,
+              unitType:             calculatedPayload.unitType             || 'carton',
+              unitWeight:           calculatedPayload.unitWeight           ?? null,
+              costPriceUnit:        cpUnit,
+              costCurrency:         currency,
+              exchangeRateAtImport: xofRate,
+              costPriceUnitXof:     cpXof,
+              originalDepotId:      chosenDepotId,
+              totalQuantity:        qty,
+              status:               'active',
+              sourceDoc:            null,
+              createdAt:            serverTimestamp(),
+              createdBy:            auth.currentUser.uid,
+            };
+            transaction.set(doc(db, 'lots', resolvedLotId), lotPayload);
+
+            transaction.set(doc(db, 'products', sku), {
+              sku,
+              productName:       firstProduct.name || sku,
+              category:          calculatedPayload.category || '',
+              unitTypeDefault:   calculatedPayload.unitType || 'carton',
+              unitWeightDefault: calculatedPayload.unitWeight ?? null,
+              thresholdGlobal:   10,
+              updatedAt:         serverTimestamp(),
+            }, { merge: true });
+
+            const guardPayload: LotGuardDoc = {
+              sku, lotNumber, lotId: resolvedLotId, createdAt: serverTimestamp(),
+            };
+            transaction.set(guardRef, guardPayload);
+          }
+
+          // LotStock — live quantity at this depot.
+          const lotStockPayload: LotStockDoc = {
+            lotId:             resolvedLotId,
+            sku,
+            depotId:           chosenDepotId,
+            quantity:          qty,
+            isActive:          qty > 0,
+            expirationSortKey: calculatedPayload.expirationDate || '9999-12-31',
+            productionDate:    calculatedPayload.productionDate || '',
+            costPriceUnitXof:  cpXof,
+            createdAt:         serverTimestamp(),
+            updatedAt:         serverTimestamp(),
+          };
+          transaction.set(
+            doc(db, 'depots', chosenDepotId, 'lotStock', resolvedLotId),
+            lotStockPayload,
+          );
+
+          // StockView — numeric counters only; Cloud Function owns earliestExpiration.
+          const kgDelta = qty * (calculatedPayload.unitWeight || (calculatedPayload.unitType === 'kg' ? 1 : 20));
+          transaction.set(doc(db, 'stockView', stockViewId(chosenDepotId, sku)), {
+            sku,
+            depotId:       chosenDepotId,
+            totalQuantity: increment(qty),
+            totalWeightKg: increment(kgDelta),
+            totalValueXof: increment(qty * cpXof),
+            lotsCount:     increment(1),
+            lastUpdated:   serverTimestamp(),
+          }, { merge: true });
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         const finalPayload = {
           ...calculatedPayload,
-          id: stockRef.id,
+          id:        stockRef.id,
+          lotId:     resolvedLotId,           // forward reference to /lots/{lotId}
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          aging_days: 0,
-          fefo_score: 100,
-          createdBy: auth.currentUser.uid
+          agingDays: 0,
+          fefoScore: 0,
+          createdBy: auth.currentUser.uid,
         };
 
         transaction.set(stockRef, finalPayload);
@@ -351,8 +449,9 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
         // 3. Update Depot Counters
         const depotRef = doc(db, 'depots', chosenDepotId);
         transaction.update(depotRef, {
-          current_load: increment(Number(finalPayload.units || finalPayload.totalWeightKg)),
-          updatedAt: serverTimestamp()
+          current_load:    increment(Number(finalPayload.quantity ?? finalPayload.totalWeightKg ?? 0)),
+          current_load_kg: increment(Number(finalPayload.totalWeightKg ?? 0)),
+          updatedAt:       serverTimestamp(),
         });
 
         // 4. Global Stats
@@ -411,10 +510,10 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
   };
 
   return (
-    <div className="h-full bg-[#f8f9fa] flex flex-col max-w-[480px] mx-auto relative font-sans overflow-hidden">
+    <div className="h-full bg-surface-page flex flex-col max-w-[480px] mx-auto relative font-sans overflow-hidden">
       
       {/* HEADER */}
-      <header className="flex-none bg-ocean-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-[100]">
+      <header className="flex-none bg-brand-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-[100]">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl text-white" />
         <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center gap-4">
@@ -424,8 +523,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
             <div>
               <h1 className="text-xl font-black text-white tracking-tight uppercase">ENTRÉES</h1>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[10px] font-black text-white/50 uppercase tracking-widest leading-none">DEPOTEK HUB</span>
-                <div className="w-1.5 h-1.5 bg-[#4CAF50] rounded-full animate-pulse shadow-[0_0_5px_#4CAF50]" />
+                <span className="text-label font-black text-white/50 uppercase tracking-widest leading-none">DEPOTEK HUB</span>
+                <div className="w-1.5 h-1.5 bg-status-success rounded-full animate-pulse shadow-md" />
               </div>
             </div>
           </div>
@@ -440,8 +539,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
         {/* SECTION 1 - POSTE DE CONTRÔLE */}
         <section className="bg-white p-8 flex flex-col items-center">
            <div className="text-center mb-8">
-              <h2 className="text-[12px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1">Poste de Contrôle</h2>
-              <p className="text-xl font-black text-[#0d1642] uppercase tracking-tight">Dépotage & Scan Documents</p>
+              <h2 className="text-caption font-black text-text-muted uppercase tracking-[0.2em] mb-1">Poste de Contrôle</h2>
+              <p className="text-xl font-black text-brand-dark uppercase tracking-tight">Dépotage & Scan Documents</p>
            </div>
 
            <label className="relative cursor-pointer mb-8">
@@ -450,19 +549,19 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
               <motion.div 
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-[140px] h-[140px] bg-[#1a237e] rounded-full flex flex-col items-center justify-center shadow-[0_20px_40px_-5px_rgba(26,35,126,0.3)] relative z-10 border-4 border-white/10"
+                className="w-[140px] h-[140px] bg-brand rounded-full flex flex-col items-center justify-center shadow-[0_20px_40px_-5px_rgba(26,35,126,0.3)] relative z-10 border-4 border-white/10"
               >
                  <Upload size={40} className="text-white mb-1" />
-                 <span className="text-[10px] font-black text-white/60 uppercase tracking-widest">UPLOAD</span>
+                 <span className="text-label font-black text-white/60 uppercase tracking-widest">UPLOAD</span>
               </motion.div>
               
               {/* Pulse effect */}
-              <div className="absolute inset-0 bg-[#1a237e] rounded-full animate-ping opacity-5 z-0 scale-110" />
+              <div className="absolute inset-0 bg-brand rounded-full animate-ping opacity-5 z-0 scale-110" />
            </label>
 
            <button 
              onClick={() => document.querySelector('input')?.click()}
-             className="bg-[#0d1642] text-white px-8 py-3.5 rounded-full text-[11px] font-black uppercase tracking-[0.2em] shadow-xl hover:bg-[#1a237e] transition-colors"
+             className="bg-brand-dark text-white px-8 py-3.5 rounded-full text-caption font-black uppercase tracking-[0.2em] shadow-xl hover:bg-brand transition-colors"
            >
               Ouvrir Caméra / Fichiers
            </button>
@@ -470,10 +569,10 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
            {isAnalyzing && (
              <motion.div 
                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-               className="mt-8 flex items-center gap-3 bg-[#1a237e]/5 px-6 py-3 rounded-2xl border border-[#1a237e]/10"
+               className="mt-8 flex items-center gap-3 bg-brand/5 px-6 py-3 rounded-2xl border border-brand/10"
              >
-                <div className="w-4 h-4 border-2 border-[#1a237e]/20 border-t-[#1a237e] rounded-full animate-spin" />
-                <span className="text-[10px] font-black text-[#1a237e] uppercase tracking-widest">Analyse Gemini IA...</span>
+                <div className="w-4 h-4 border-2 border-brand/20 border-t-[#1a237e] rounded-full animate-spin" />
+                <span className="text-label font-black text-brand uppercase tracking-widest">Analyse Gemini IA...</span>
              </motion.div>
            )}
         </section>
@@ -485,12 +584,12 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
              onClick={() => setSearchOpen(!searchOpen)}
            >
               <div className="flex items-center gap-2">
-                 <h3 className="text-[13px] font-black text-slate-900 uppercase tracking-tight">Flux de Tracking</h3>
-                 <span className="px-1.5 py-0.5 bg-[#4CAF50]/10 text-[#4CAF50] text-[8px] font-black uppercase rounded tracking-tighter">Live PAD</span>
+                 <h3 className="text-body font-black text-text-primary uppercase tracking-tight">Flux de Tracking</h3>
+                 <span className="px-1.5 py-0.5 bg-status-success/10 text-status-success text-micro font-black uppercase rounded tracking-tighter">Live PAD</span>
               </div>
               <div className="flex items-center gap-3">
-                 <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">10 Derniers</span>
-                 <button onClick={() => setSearchOpen(!searchOpen)} className="w-8 h-8 bg-white rounded-lg shadow-sm border border-slate-100 flex items-center justify-center text-slate-400">
+                 <span className="text-label font-black text-text-muted uppercase tracking-widest">10 Derniers</span>
+                 <button onClick={() => setSearchOpen(!searchOpen)} className="w-8 h-8 bg-white rounded-lg shadow-sm border border-border-default flex items-center justify-center text-text-muted">
                     <Search size={14} />
                  </button>
               </div>
@@ -501,15 +600,15 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
               {searchOpen && (
                 <motion.div 
                   initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden mb-6 bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100"
+                  className="overflow-hidden mb-6 bg-white p-5 rounded-[2rem] shadow-sm border border-border-default"
                 >
                    <div className="flex gap-2 mb-4">
                       {['AUTO', 'CONTAINER', 'BL'].map(t => (
                         <button 
                           key={t} onClick={() => setSearchType(t as any)}
                           className={cn(
-                            "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", 
-                            searchType === t ? "bg-[#1a237e] text-white shadow-lg" : "bg-slate-50 text-slate-400"
+                            "px-4 py-2 rounded-xl text-label font-black uppercase tracking-widest transition-all", 
+                            searchType === t ? "bg-brand text-white shadow-lg" : "bg-surface-subtle text-text-muted"
                           )}
                         >
                           {t}
@@ -526,7 +625,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                           }}
                           placeholder="MSDU9889624"
                           maxLength={11}
-                          className="w-full bg-slate-50 px-5 py-4 rounded-2xl text-sm font-black text-slate-900 outline-none border border-slate-100 focus:border-[#1a237e]/30 placeholder:text-slate-200"
+                          className="w-full bg-surface-subtle px-5 py-4 rounded-2xl text-sm font-black text-text-primary outline-none border border-border-default focus:border-brand/30 placeholder:text-slate-200"
                         />
                         {detectedCarrier && (
                           <div 
@@ -534,7 +633,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                             style={{ backgroundColor: `${detectedCarrier.color}15` }}
                           >
                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: detectedCarrier.color }} />
-                             <span className="text-[9px] font-black uppercase tracking-tighter" style={{ color: detectedCarrier.color }}>
+                             <span className="text-micro font-black uppercase tracking-tighter" style={{ color: detectedCarrier.color }}>
                                 {detectedCarrier.name}
                              </span>
                           </div>
@@ -548,20 +647,20 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                              window.open(url, '_blank');
                              setTrackingNumber('');
                           }}
-                          className="bg-[#1a237e] text-white px-6 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-[#1a237e]/20 active:scale-95 transition-all h-full"
+                          className="bg-brand text-white px-6 py-4 rounded-2xl text-caption font-black uppercase tracking-widest shadow-xl shadow-[#1a237e]/20 active:scale-95 transition-all h-full"
                         >
                           TRACKER
                         </button>
                       </div>
                    </div>
                    <div className="flex items-center justify-between mt-3 px-1">
-                      <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">
+                      <p className="text-micro font-bold text-text-muted uppercase tracking-widest">
                         Ouverture via portail maritime externe
                       </p>
                       <button 
                         onClick={handleSearch}
                         disabled={isSearching}
-                        className="text-[9px] font-black text-[#1a237e] uppercase tracking-widest border-b border-[#1a237e]/20 pb-0.5"
+                        className="text-micro font-black text-brand uppercase tracking-widest border-b border-brand/20 pb-0.5"
                       >
                         {isSearching ? 'Synchronisation...' : 'Synchroniser Flux'}
                       </button>
@@ -572,9 +671,9 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
            
            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 scroll-smooth" ref={scrollRef}>
               {trackingFlow.length === 0 ? (
-                <div className="w-full h-24 bg-white/50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center">
+                <div className="w-full h-24 bg-white/50 rounded-2xl border border-dashed border-border-default flex flex-col items-center justify-center">
                    <Navigation size={20} className="text-slate-200 mb-1" />
-                   <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Aucun flux détecté</p>
+                   <p className="text-micro font-black text-text-muted uppercase tracking-widest">Aucun flux détecté</p>
                 </div>
               ) : (
                 trackingFlow.map(track => (
@@ -588,7 +687,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                   />
                   {(!docStatusMap[track.numeroConteneur]?.hasInvoice || !docStatusMap[track.numeroConteneur]?.hasSanitary) && (track.statut === 'at_port' || track.statut === 'arrived' || track.statut === 'customs_clearance') && (
                     <div className="absolute -top-1 -right-1 z-20">
-                      <div className="bg-red-500 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white animate-pulse">
+                      <div className="bg-red-500 text-white text-micro font-black px-1.5 py-0.5 rounded-full shadow-lg border border-white animate-pulse">
                         DOCUMENT REQUIS
                       </div>
                     </div>
@@ -602,25 +701,25 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
         {/* SECTION 3 - DERNIERS DOCUMENTS */}
         <section className="mt-8 px-6">
            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[13px] font-black text-slate-900 uppercase tracking-tight">Derniers Documents</h3>
-              <button onClick={() => onNavigate('Docs')} className="text-[10px] font-black text-[#1a237e] uppercase tracking-widest">Voir tout</button>
+              <h3 className="text-body font-black text-text-primary uppercase tracking-tight">Derniers Documents</h3>
+              <button onClick={() => onNavigate('Docs')} className="text-label font-black text-brand uppercase tracking-widest">Voir tout</button>
            </div>
 
            <div className="space-y-3">
               {recentDocs.map(doc => (
-                <div key={doc.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center gap-4 transition-all hover:bg-slate-50 group">
+                <div key={doc.id} className="bg-white p-4 rounded-2xl border border-border-default flex items-center gap-4 transition-all hover:bg-surface-subtle group">
                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", getDocColor(doc.category))}>
                       <FileText size={18} />
                    </div>
                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
-                         <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-tight truncate">{doc.fileName}</h4>
-                         <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter", doc.actionTaken === 'new_container' ? "bg-green-50 text-green-600" : "bg-blue-50 text-blue-600")}>
+                         <h4 className="text-caption font-black text-text-primary uppercase tracking-tight truncate">{doc.fileName}</h4>
+                         <span className={cn("text-micro font-black px-1.5 py-0.5 rounded uppercase tracking-tighter", doc.actionTaken === 'new_container' ? "bg-green-50 text-green-600" : "bg-blue-50 text-blue-600")}>
                             {doc.actionTaken === 'new_container' ? '🆕 STOCK' : '📦 DÉPÔT'}
                          </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">
+                        <p className="text-micro font-bold text-text-muted uppercase tracking-widest leading-none">
                            {doc.createdAt?.toDate ? doc.createdAt.toDate().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }) : 'Maintenant'}
                         </p>
                         {doc.linkedContainer && (
@@ -629,14 +728,14 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                               e.stopPropagation();
                               handleDocContainerClick(doc.linkedContainer!);
                             }}
-                            className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded text-[8px] font-black uppercase tracking-tighter hover:bg-green-100 transition-colors"
+                            className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded text-micro font-black uppercase tracking-tighter hover:bg-green-100 transition-colors"
                           >
                              {doc.linkedContainer}
                           </button>
                         )}
                       </div>
                    </div>
-                   <ChevronRight size={14} className="text-slate-200 group-hover:text-slate-400" />
+                   <ChevronRight size={14} className="text-slate-200 group-hover:text-text-muted" />
                 </div>
               ))}
            </div>
@@ -647,47 +746,47 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       <AnimatePresence>
         {extractedData && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200]" onClick={() => !showDepotSelect && setExtractedData(null)} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-brand-ink/80 backdrop-blur-md z-[200]" onClick={() => !showDepotSelect && setExtractedData(null)} />
             <motion.div 
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} 
               className="fixed bottom-0 left-0 w-full bg-white rounded-t-[3rem] p-8 z-[210] shadow-2xl flex flex-col max-h-[90vh]"
             >
-               <div className="w-12 h-1 bg-slate-100 rounded-full mx-auto mb-6" />
+               <div className="w-12 h-1 bg-surface-subtle rounded-full mx-auto mb-6" />
                <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
-                     <CheckCircle2 size={24} className="text-[#4CAF50]" />
-                     <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Données Extuites (IA)</h3>
+                     <CheckCircle2 size={24} className="text-status-success" />
+                     <h3 className="text-lg font-black text-text-primary uppercase tracking-tight">Données Extuites (IA)</h3>
                   </div>
-                  <button onClick={() => setExtractedData(null)} className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400">
+                  <button onClick={() => setExtractedData(null)} className="w-10 h-10 bg-surface-subtle rounded-xl flex items-center justify-center text-text-muted">
                      <X size={20} />
                   </button>
                </div>
 
                <div className="flex-1 overflow-y-auto no-scrollbar space-y-6 pb-6">
-                  <div className="bg-slate-50 p-6 rounded-2xl space-y-4">
+                  <div className="bg-surface-subtle p-6 rounded-2xl space-y-4">
                      <div>
-                        <span className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] block mb-1">Conteneur Détecté</span>
-                        <p className="text-base font-black text-[#1a237e] uppercase">{extractedData.containerNumber || 'Non défini'}</p>
+                        <span className="text-micro font-black text-text-muted uppercase tracking-[0.2em] block mb-1">Conteneur Détecté</span>
+                        <p className="text-base font-black text-brand uppercase">{extractedData.containerNumber || 'Non défini'}</p>
                      </div>
                      <div>
-                        <span className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] block mb-1">Type de Document</span>
+                        <span className="text-micro font-black text-text-muted uppercase tracking-[0.2em] block mb-1">Type de Document</span>
                         <p className="text-base font-black text-slate-800 uppercase">{getCatLabel(extractedData.docType)}</p>
                      </div>
                      <div>
-                        <span className="text-[9px] font-black text-slate-300 uppercase tracking-[0.2em] block mb-2">Produits</span>
+                        <span className="text-micro font-black text-text-muted uppercase tracking-[0.2em] block mb-2">Produits</span>
                         <div className="space-y-2">
                            {extractedData.products?.map((p: any, i: number) => {
                                const isNewProduct = !existingProductNames.has((p.name || '').toUpperCase());
                                return (
                                 <div key={i} className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between bg-white px-4 py-2 rounded-xl border border-slate-100">
-                                     <span className="text-[11px] font-black text-slate-900 uppercase truncate max-w-[140px]">{p.name}</span>
-                                     <span className="text-[11px] font-black text-[#1a237e]">{p.quantity} CTN</span>
+                                  <div className="flex items-center justify-between bg-white px-4 py-2 rounded-xl border border-border-default">
+                                     <span className="text-caption font-black text-text-primary uppercase truncate max-w-[140px]">{p.name}</span>
+                                     <span className="text-caption font-black text-brand">{p.quantity} CTN</span>
                                   </div>
                                   {isNewProduct && (
                                     <div className="flex items-center gap-1.5 px-2">
                                        <AlertTriangle size={10} className="text-amber-500" />
-                                       <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">Article non détecté dans l'historique</span>
+                                       <span className="text-micro font-black text-amber-600 uppercase tracking-widest">Article non détecté dans l'historique</span>
                                     </div>
                                   )}
                                 </div>
@@ -699,44 +798,44 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
 
                   {!showDepotSelect ? (
                     <div className="grid grid-cols-1 gap-3">
-                       <div className="bg-[#1a237e]/5 p-4 rounded-xl border border-[#1a237e]/10 mb-2">
-                          <p className="text-[10px] font-black text-[#1a237e] uppercase tracking-widest mb-1">Résumé Extraction</p>
-                          <p className="text-[12px] font-black text-slate-800 uppercase">
+                       <div className="bg-brand/5 p-4 rounded-xl border border-brand/10 mb-2">
+                          <p className="text-label font-black text-brand uppercase tracking-widest mb-1">Résumé Extraction</p>
+                          <p className="text-caption font-black text-slate-800 uppercase">
                             {extractedData.products?.[0]?.name || 'Produit'} - {extractedData.products?.[0]?.quantity || 0} CTN
                           </p>
                        </div>
                        <button 
                          disabled={isProcessing}
                          onClick={() => confirmStockAction('nouveau')} 
-                         className="w-full py-5 bg-[#0d1642] text-white rounded-2xl font-black uppercase text-[12px] tracking-widest shadow-xl disabled:opacity-50"
+                         className="w-full py-5 bg-brand-dark text-white rounded-2xl font-black uppercase text-caption tracking-widest shadow-xl disabled:opacity-50"
                        >
                           {isProcessing ? "TRAITEMENT..." : "CRÉER NOUVEAU STOCK"}
                        </button>
                        <button 
                          disabled={isProcessing}
                          onClick={() => setShowDepotSelect(true)} 
-                         className="w-full py-5 bg-white text-[#1a237e] border-2 border-[#1a237e] rounded-2xl font-black uppercase text-[12px] tracking-widest shadow-lg disabled:opacity-50"
+                         className="w-full py-5 bg-white text-brand border-2 border-brand rounded-2xl font-black uppercase text-caption tracking-widest shadow-lg disabled:opacity-50"
                        >
                           AJOUTER À UN DÉPÔT EXISTANT
                        </button>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                       <h4 className="text-[10px] font-black text-[#1a237e] uppercase tracking-widest text-center">Choisir Dépôt Destination</h4>
+                       <h4 className="text-label font-black text-brand uppercase tracking-widest text-center">Choisir Dépôt Destination</h4>
                        <div className="grid grid-cols-2 gap-2">
                           {depots.map((d: any) => (
                              <button 
                                 key={d.id} 
                                 disabled={isProcessing}
                                 onClick={() => confirmStockAction('depot', d.id)} 
-                                className="p-4 bg-slate-50 hover:bg-[#1a237e]/5 border border-slate-100 rounded-xl text-left transition-colors disabled:opacity-50"
+                                className="p-4 bg-surface-subtle hover:bg-brand/5 border border-border-default rounded-xl text-left transition-colors disabled:opacity-50"
                              >
-                                <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight truncate">{d.name}</p>
-                                <p className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{d.type}</p>
+                                <p className="text-caption font-black text-text-primary uppercase tracking-tight truncate">{d.name}</p>
+                                <p className="text-micro font-bold text-text-muted mt-0.5 uppercase tracking-widest">{d.type}</p>
                              </button>
                           ))}
                        </div>
-                       <button onClick={() => setShowDepotSelect(false)} className="w-full text-[10px] font-black text-slate-400 uppercase mt-2">Retour au résumé</button>
+                       <button onClick={() => setShowDepotSelect(false)} className="w-full text-label font-black text-text-muted uppercase mt-2">Retour au résumé</button>
                     </div>
                   )}
                </div>
@@ -749,7 +848,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       <AnimatePresence>
         {analysisError && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[220]" onClick={() => setAnalysisError(null)} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-brand-ink/60 backdrop-blur-sm z-[220]" onClick={() => setAnalysisError(null)} />
             <motion.div 
                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-[360px] bg-white rounded-[2.5rem] p-8 z-[230] shadow-2xl border-t-4 border-red-500"
@@ -758,8 +857,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                   <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4">
                      <AlertTriangle size={32} />
                   </div>
-                  <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight mb-2">{analysisError.message}</h3>
-                  <p className="text-xs text-slate-400 mb-6 px-2">{analysisError.detail}</p>
+                  <h3 className="text-lg font-black text-text-primary uppercase tracking-tight mb-2">{analysisError.message}</h3>
+                  <p className="text-xs text-text-muted mb-6 px-2">{analysisError.detail}</p>
                   
                   <div className="space-y-3 w-full">
                      <button 
@@ -767,13 +866,13 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                          setAnalysisError(null);
                          setIsManualEntry(true);
                        }}
-                       className="w-full py-4 bg-[#0d1642] text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl"
+                       className="w-full py-4 bg-brand-dark text-white rounded-2xl font-black uppercase text-caption tracking-widest shadow-xl"
                      >
                        Saisie Manuelle
                      </button>
                      <button 
                        onClick={() => setAnalysisError(null)}
-                       className="w-full py-4 bg-slate-50 text-slate-400 rounded-2xl font-black uppercase text-[11px] tracking-widest"
+                       className="w-full py-4 bg-surface-subtle text-text-muted rounded-2xl font-black uppercase text-caption tracking-widest"
                      >
                        Réessayer le Scan
                      </button>
@@ -788,20 +887,20 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       <AnimatePresence>
         {isManualEntry && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200]" onClick={() => setIsManualEntry(false)} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-brand-ink/80 backdrop-blur-md z-[200]" onClick={() => setIsManualEntry(false)} />
             <motion.div 
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} 
               className="fixed bottom-0 left-0 w-full bg-white rounded-t-[3rem] p-8 z-[210] shadow-2xl flex flex-col max-h-[90vh]"
             >
-               <div className="w-12 h-1 bg-slate-100 rounded-full mx-auto mb-6" />
+               <div className="w-12 h-1 bg-surface-subtle rounded-full mx-auto mb-6" />
                <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                      <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
                         <Plus size={20} />
                      </div>
-                     <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Saisie Manuelle DEPOTEK</h3>
+                     <h3 className="text-lg font-black text-text-primary uppercase tracking-tight">Saisie Manuelle DEPOTEK</h3>
                   </div>
-                  <button onClick={() => setIsManualEntry(false)} className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400">
+                  <button onClick={() => setIsManualEntry(false)} className="w-10 h-10 bg-surface-subtle rounded-xl flex items-center justify-center text-text-muted">
                      <X size={20} />
                   </button>
                </div>
@@ -809,43 +908,43 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                <div className="flex-1 overflow-y-auto no-scrollbar space-y-5 pb-6">
                   <div className="space-y-4">
                      <div className="space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest px-1">Produit / Désignation</label>
+                        <label className="text-micro font-black text-text-muted uppercase tracking-widest px-1">Produit / Désignation</label>
                         <input 
                           type="text" 
                           value={manualForm.productName}
                           onChange={e => setManualForm(prev => ({...prev, productName: e.target.value}))}
-                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 outline-none focus:border-amber-500/30 uppercase"
+                          className="w-full bg-surface-subtle border border-border-default rounded-2xl p-4 text-sm font-black text-text-primary outline-none focus:border-amber-500/30 uppercase"
                           placeholder="Ex: BUFFALO MEAT"
                         />
                      </div>
                      <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                           <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest px-1">Quantité (Cartons)</label>
+                           <label className="text-micro font-black text-text-muted uppercase tracking-widest px-1">Quantité (Cartons)</label>
                            <input 
                              type="number" 
                              value={manualForm.quantity}
                              onChange={e => setManualForm(prev => ({...prev, quantity: e.target.value}))}
-                             className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 outline-none focus:border-amber-500/30"
+                             className="w-full bg-surface-subtle border border-border-default rounded-2xl p-4 text-sm font-black text-text-primary outline-none focus:border-amber-500/30"
                              placeholder="0"
                            />
                         </div>
                         <div className="space-y-1.5">
-                           <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest px-1">N° Conteneur</label>
+                           <label className="text-micro font-black text-text-muted uppercase tracking-widest px-1">N° Conteneur</label>
                            <input 
                              type="text" 
                              value={manualForm.container}
                              onChange={e => setManualForm(prev => ({...prev, container: e.target.value.toUpperCase()}))}
-                             className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 outline-none focus:border-amber-500/30 uppercase"
+                             className="w-full bg-surface-subtle border border-border-default rounded-2xl p-4 text-sm font-black text-text-primary outline-none focus:border-amber-500/30 uppercase"
                              placeholder="MSCU1234567"
                            />
                         </div>
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest px-1">Type de Document</label>
+                        <label className="text-micro font-black text-text-muted uppercase tracking-widest px-1">Type de Document</label>
                         <select 
                           value={manualForm.docType}
                           onChange={e => setManualForm(prev => ({...prev, docType: e.target.value}))}
-                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-black text-slate-900 outline-none focus:border-amber-500/30 appearance-none uppercase"
+                          className="w-full bg-surface-subtle border border-border-default rounded-2xl p-4 text-sm font-black text-text-primary outline-none focus:border-amber-500/30 appearance-none uppercase"
                         >
                            <option value="invoice">Facture COMMERCIALE</option>
                            <option value="sanitary_certificate">Certificat SANITAIRE</option>
@@ -859,27 +958,27 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                     <button 
                       disabled={isProcessing || !manualForm.productName || !manualForm.quantity}
                       onClick={() => setShowDepotSelect(true)} 
-                      className="w-full py-5 bg-[#0d1642] text-white rounded-2xl font-black uppercase text-[12px] tracking-widest shadow-xl disabled:opacity-50"
+                      className="w-full py-5 bg-brand-dark text-white rounded-2xl font-black uppercase text-caption tracking-widest shadow-xl disabled:opacity-50"
                     >
                        Choisir Dépôt & Valider
                     </button>
                   ) : (
                     <div className="space-y-4">
-                       <h4 className="text-[10px] font-black text-amber-600 uppercase tracking-widest text-center">Destination : {manualForm.productName}</h4>
+                       <h4 className="text-label font-black text-amber-600 uppercase tracking-widest text-center">Destination : {manualForm.productName}</h4>
                        <div className="grid grid-cols-2 gap-2">
                           {depots.map((d: any) => (
                              <button 
                                 key={d.id} 
                                 disabled={isProcessing}
                                 onClick={() => confirmStockAction('depot', d.id)} 
-                                className="p-4 bg-slate-50 hover:bg-amber-50 border border-slate-100 rounded-xl text-left transition-colors disabled:opacity-50"
+                                className="p-4 bg-surface-subtle hover:bg-amber-50 border border-border-default rounded-xl text-left transition-colors disabled:opacity-50"
                              >
-                                <p className="text-[11px] font-black text-slate-900 uppercase tracking-tight truncate">{d.name}</p>
-                                <p className="text-[8px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{d.type}</p>
+                                <p className="text-caption font-black text-text-primary uppercase tracking-tight truncate">{d.name}</p>
+                                <p className="text-micro font-bold text-text-muted mt-0.5 uppercase tracking-widest">{d.type}</p>
                              </button>
                           ))}
                        </div>
-                       <button onClick={() => setShowDepotSelect(false)} className="w-full text-[10px] font-black text-slate-400 uppercase mt-2">Retour au formulaire</button>
+                       <button onClick={() => setShowDepotSelect(false)} className="w-full text-label font-black text-text-muted uppercase mt-2">Retour au formulaire</button>
                     </div>
                   )}
                </div>
@@ -901,8 +1000,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
              >
                 <CheckCircle2 size={64} />
              </motion.div>
-             <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-4">Stock Enregistré !</h2>
-             <p className="text-slate-400 font-bold uppercase tracking-widest text-sm max-w-[240px]">
+             <h2 className="text-3xl font-black text-text-primary uppercase tracking-tighter mb-4">Stock Enregistré !</h2>
+             <p className="text-text-muted font-bold uppercase tracking-widest text-sm max-w-[240px]">
                Entrée validée DEPOTEK Hub. Redirection...
              </p>
           </motion.div>
@@ -920,8 +1019,8 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                  className="flex flex-col items-end gap-4 mb-3"
                >
                   <FabOption label="Sortie" icon={<ArrowUpRight size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-orange-500" />
-                  <FabOption label="Entrée" icon={<Plus size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-ocean-primary" />
-                  <FabOption label="Inventaire" icon={<Box size={20} />} onClick={() => onNavigate('inventaire')} color="bg-ocean-dark" />
+                  <FabOption label="Entrée" icon={<Plus size={20} />} onClick={() => onNavigate('MovementForm')} color="bg-brand" />
+                  <FabOption label="Inventaire" icon={<Box size={20} />} onClick={() => onNavigate('inventaire')} color="bg-brand-dark" />
                </motion.div>
             )}
          </AnimatePresence>
@@ -932,7 +1031,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
             onClick={() => setIsFabOpen(!isFabOpen)}
             className={cn(
               "w-16 h-16 rounded-full shadow-2xl flex items-center justify-center border-[5px] border-white transition-all shadow-[#1a237e]/30 z-[200]",
-              isFabOpen ? "bg-ocean-dark text-white rotate-45" : "bg-ocean-primary text-white"
+              isFabOpen ? "bg-brand-dark text-white rotate-45" : "bg-brand text-white"
             )}
          >
             <Plus size={32} strokeWidth={3} />
@@ -943,10 +1042,10 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
       <AnimatePresence>
         {validationModal.open && validationModal.track && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[250]" onClick={() => setValidationModal({ open: false, track: null })} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-brand-ink/40 backdrop-blur-sm z-[250]" onClick={() => setValidationModal({ open: false, track: null })} />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-[400px] bg-white rounded-[2.5rem] p-8 z-[260] shadow-2xl border border-slate-100"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-[400px] bg-white rounded-[2.5rem] p-8 z-[260] shadow-2xl border border-border-default"
             >
                <div className="flex flex-col items-center text-center">
                   <div className={cn(
@@ -961,14 +1060,14 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                      }
                   </div>
                   
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-2">VALIDER RÉCEPTION</h3>
-                  <p className="text-sm font-black text-[#1a237e] uppercase mb-6">{validationModal.track.numeroConteneur}</p>
+                  <h3 className="text-xl font-black text-text-primary uppercase tracking-tight mb-2">VALIDER RÉCEPTION</h3>
+                  <p className="text-sm font-black text-brand uppercase mb-6">{validationModal.track.numeroConteneur}</p>
                   
-                  <div className="w-full bg-slate-50 p-6 rounded-2xl space-y-4 mb-8 text-left">
+                  <div className="w-full bg-surface-subtle p-6 rounded-2xl space-y-4 mb-8 text-left">
                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Conformité Documents</span>
+                        <span className="text-label font-black text-text-muted uppercase tracking-widest">Conformité Documents</span>
                         <span className={cn(
-                          "text-[10px] font-black uppercase tracking-widest",
+                          "text-label font-black uppercase tracking-widest",
                           (docStatusMap[validationModal.track.numeroConteneur]?.hasInvoice && docStatusMap[validationModal.track.numeroConteneur]?.hasSanitary)
                             ? "text-green-600"
                             : "text-amber-600"
@@ -982,11 +1081,11 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                      <div className="space-y-2">
                         <div className="flex items-center gap-3">
                            <div className={cn("w-2 h-2 rounded-full", docStatusMap[validationModal.track.numeroConteneur]?.hasInvoice ? "bg-green-500" : "bg-red-500")} />
-                           <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">Facture Commerciale</span>
+                           <span className="text-caption font-black text-slate-700 uppercase tracking-tight">Facture Commerciale</span>
                         </div>
                         <div className="flex items-center gap-3">
                            <div className={cn("w-2 h-2 rounded-full", docStatusMap[validationModal.track.numeroConteneur]?.hasSanitary ? "bg-green-500" : "bg-red-500")} />
-                           <span className="text-[11px] font-black text-slate-700 uppercase tracking-tight">Certificat Sanitaire</span>
+                           <span className="text-caption font-black text-slate-700 uppercase tracking-tight">Certificat Sanitaire</span>
                         </div>
                      </div>
                   </div>
@@ -994,7 +1093,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                   <div className="grid grid-cols-2 gap-3 w-full">
                      <button 
                        onClick={() => setValidationModal({ open: false, track: null })}
-                       className="py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                       className="py-4 bg-surface-subtle text-text-muted rounded-2xl font-black uppercase text-label tracking-widest"
                      >
                         ANNULER
                      </button>
@@ -1004,7 +1103,7 @@ export const ReceptionScreen = ({ onBack, onNavigate }: { onBack: () => void, on
                             processReception(validationModal.track);
                           }
                         }}
-                       className="py-4 bg-[#0d1642] text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg"
+                       className="py-4 bg-brand-dark text-white rounded-2xl font-black uppercase text-label tracking-widest shadow-lg"
                      >
                         CONFIRMER
                      </button>
@@ -1035,7 +1134,7 @@ const TrackingItemCard = ({ track, onToggle, isExpanded, missingDocs, onReceptio
   return (
     <div 
       className={cn(
-        "flex-none w-[170px] bg-white rounded-2xl p-4 shadow-sm border border-slate-100 relative group transition-all",
+        "flex-none w-[170px] bg-white rounded-2xl p-4 shadow-sm border border-border-default relative group transition-all",
         missingDocs ? "border-red-200 bg-red-50/10" : ""
       )}
       style={carrier ? { borderBottom: `3px solid ${carrierColor}`, borderBottomRightRadius: '8px', borderBottomLeftRadius: '8px' } : {}}
@@ -1065,13 +1164,13 @@ const TrackingItemCard = ({ track, onToggle, isExpanded, missingDocs, onReceptio
              )}
           </div>
           
-          <p className="text-[12px] font-black text-slate-900 truncate uppercase tracking-tight leading-none mb-1">{track.numeroConteneur}</p>
+          <p className="text-caption font-black text-text-primary truncate uppercase tracking-tight leading-none mb-1">{track.numeroConteneur}</p>
           
           <div 
             className="inline-flex px-1.5 py-0.5 rounded-md mb-3"
             style={{ backgroundColor: `${carrierColor}20` }}
           >
-             <span className="text-[8px] font-black uppercase tracking-widest truncate" style={{ color: carrierColor }}>
+             <span className="text-micro font-black uppercase tracking-widest truncate" style={{ color: carrierColor }}>
                 {carrierName}
              </span>
           </div>
@@ -1080,14 +1179,14 @@ const TrackingItemCard = ({ track, onToggle, isExpanded, missingDocs, onReceptio
        <div className="flex items-center justify-between">
           <button 
             onClick={onToggle}
-            className="text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-[#1a237e]"
+            className="text-micro font-black text-text-muted uppercase tracking-widest hover:text-brand"
           >
              {isExpanded ? 'OK' : 'DOCS'}
           </button>
           
           <button 
             onClick={handleTrackClick}
-            className="text-[9px] font-black uppercase tracking-widest"
+            className="text-micro font-black uppercase tracking-widest"
             style={{ color: carrierColor }}
           >
              TRACK →
@@ -1099,19 +1198,19 @@ const TrackingItemCard = ({ track, onToggle, isExpanded, missingDocs, onReceptio
           {isExpanded && (
             <motion.div 
               initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="mt-4 pt-3 border-t border-slate-100 space-y-3 overflow-hidden"
+              className="mt-4 pt-3 border-t border-border-default space-y-3 overflow-hidden"
             >
                {track.historiqueMilestones?.slice(0, 3).map((m, i) => (
                  <div key={i} className="flex gap-2.5 relative">
-                    <div className="w-1 h-full absolute left-[3.5px] top-2 border-l border-slate-100" />
-                    <div className="w-2 h-2 bg-slate-200 rounded-full mt-1 shrink-0 bg-[#1a237e]" />
+                    <div className="w-1 h-full absolute left-[3.5px] top-2 border-l border-border-default" />
+                    <div className="w-2 h-2 bg-slate-200 rounded-full mt-1 shrink-0 bg-brand" />
                     <div className="min-w-0">
-                       <p className="text-[9px] font-black text-slate-900 uppercase tracking-tighter leading-none mb-0.5">{m.status}</p>
-                       <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter truncate w-[130px]">{m.location}</p>
+                       <p className="text-micro font-black text-text-primary uppercase tracking-tighter leading-none mb-0.5">{m.status}</p>
+                       <p className="text-micro font-bold text-text-muted uppercase tracking-tighter truncate w-[130px]">{m.location}</p>
                     </div>
                  </div>
                ))}
-               <p className="text-[8px] font-black text-center text-[#1a237e]/40 uppercase tracking-widest pt-1 cursor-pointer" onClick={onToggle}>Réduire</p>
+               <p className="text-micro font-black text-center text-brand/40 uppercase tracking-widest pt-1 cursor-pointer" onClick={onToggle}>Réduire</p>
             </motion.div>
           )}
        </AnimatePresence>
@@ -1122,15 +1221,15 @@ const TrackingItemCard = ({ track, onToggle, isExpanded, missingDocs, onReceptio
 const NavItem = ({ icon, label, active = false, badge, onClick }: any) => (
   <button onClick={onClick} className={cn(
     "flex flex-col items-center gap-1 transition-all relative",
-    active ? "text-[#1a237e]" : "text-slate-300"
+    active ? "text-brand" : "text-text-muted"
   )}>
     <div className={cn("p-1 transition-all", active ? "scale-110" : "")}>{icon}</div>
     {badge !== undefined && (
-      <span className="absolute -top-1 right-0 min-w-[16px] h-[16px] bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border border-white px-0.5 shadow-sm">
+      <span className="absolute -top-1 right-0 min-w-[16px] h-[16px] bg-red-500 text-white text-micro font-black rounded-full flex items-center justify-center border border-white px-0.5 shadow-sm">
         {badge}
       </span>
     )}
-    <span className="text-[9px] font-black uppercase tracking-widest pt-0.5">{label}</span>
+    <span className="text-micro font-black uppercase tracking-widest pt-0.5">{label}</span>
   </button>
 );
 
@@ -1154,7 +1253,7 @@ const getDocColor = (cat: any) => {
     case 'customs': return 'bg-purple-50 text-purple-500';
     case 'packing_list': return 'bg-orange-50 text-orange-500';
     case 'temperature_log': return 'bg-cyan-50 text-cyan-500';
-    default: return 'bg-slate-100 text-slate-500';
+    default: return 'bg-surface-subtle text-text-secondary';
   }
 };
 
@@ -1164,7 +1263,7 @@ const FabOption = ({ label, icon, onClick, color }: any) => (
     onClick={onClick}
     className="flex items-center gap-3 group"
   >
-     <span className="px-3 py-1.5 bg-white shadow-xl rounded-xl text-[10px] font-black text-ocean-dark uppercase tracking-widest border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity">
+     <span className="px-3 py-1.5 bg-white shadow-xl rounded-xl text-label font-black text-brand-dark uppercase tracking-widest border border-border-default opacity-0 group-hover:opacity-100 transition-opacity">
         {label}
      </span>
      <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-black/5", color)}>

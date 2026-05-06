@@ -20,15 +20,15 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, computeStockPayload } from '../lib/utils';
+import { applyMovement, normalizeStockItem } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  doc, 
-  runTransaction, 
-  serverTimestamp, 
+import {
+  collection,
+  query,
+  onSnapshot,
+  doc,
+  runTransaction,
+  serverTimestamp,
   increment,
   collectionGroup,
   where
@@ -71,7 +71,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   useEffect(() => {
     const q = query(collectionGroup(db, 'stock'), where('status', '==', 'stored'));
     const unsub = onSnapshot(q, (snap) => {
-      setAllAvailableStock(snap.docs.map(d => ({ id: d.id, ...d.data() } as StockItem)));
+      setAllAvailableStock(snap.docs.map(d => normalizeStockItem(d.data() as Record<string, any>, d.id)));
     });
     return () => unsub();
   }, []);
@@ -80,7 +80,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   const filteredStocks = useMemo(() => {
     const targetDepotId = activeTab === 'ENTREE' ? entryForm.depotId : exitForm.depotId;
     if (!targetDepotId) return [];
-    return allAvailableStock.filter(s => (s.depotId === targetDepotId || s.depot_id === targetDepotId));
+    return allAvailableStock.filter(s => s.depotId === targetDepotId);
   }, [allAvailableStock, entryForm.depotId, exitForm.depotId, activeTab]);
 
   const selectedLotForExit = useMemo(() => {
@@ -88,10 +88,10 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   }, [allAvailableStock, exitForm.lotId]);
 
   const isExitValid = useMemo(() => {
-    if (!exitForm.lotId || !exitForm.quantity || !exitForm.customer) return false;
+    if (!exitForm.depotId || !exitForm.lotId || !exitForm.quantity || !exitForm.customer) return false;
     const qty = Number(exitForm.quantity);
     if (isNaN(qty) || qty <= 0) return false;
-    if (selectedLotForExit && qty > (selectedLotForExit.quantity || 0)) return false;
+    if (selectedLotForExit && qty > selectedLotForExit.quantity) return false;
     return true;
   }, [exitForm, selectedLotForExit]);
 
@@ -102,25 +102,23 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   }, [entryForm.quantity, entryForm.unitPrice]);
 
   const exitValue = useMemo(() => {
-    if (!exitForm.lotId) return 0;
-    const selectedLot = filteredStocks.find(s => s.id === exitForm.lotId);
-    if (!selectedLot) return 0;
+    if (!exitForm.lotId || !selectedLotForExit) return 0;
     const q = Number(exitForm.quantity) || 0;
-    const p = selectedLot.unitPrice || (selectedLot.cost_basis ? (selectedLot.cost_basis / (selectedLot.quantity || 1)) : 0);
+    const available = selectedLotForExit.quantity;
+    const p = selectedLotForExit.costPrice
+      || (available > 0 ? selectedLotForExit.costBasis / available : 0);
     return q * p;
-  }, [exitForm.quantity, exitForm.lotId, filteredStocks]);
+  }, [exitForm.quantity, exitForm.lotId, selectedLotForExit]);
   const handleEntrySubmit = async () => {
     const isNew = entryForm.stockId === 'NEW';
     if (!entryForm.depotId || !entryForm.quantity) {
       showToast("Dépôt et quantité requis", "error");
       return;
     }
-
     if (!entryForm.unitPrice) {
       showToast("Le prix d'achat est obligatoire", "error");
       return;
     }
-
     if (isNew && !entryForm.product) {
       showToast("Le nom du produit est requis", "error");
       return;
@@ -128,80 +126,74 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
     setLoading(true);
     try {
-      const qty = Number(entryForm.quantity);
-      const userName = auth.currentUser?.displayName || 'Agent';
-      const userId = auth.currentUser?.uid;
+      const qty        = Number(entryForm.quantity);
+      const userName   = auth.currentUser?.displayName || 'Agent';
+      const userId     = auth.currentUser?.uid;
+      // Generate movementId BEFORE the transaction — idempotency key for app-layer retries.
+      const movementId = doc(collection(db, 'movements')).id;
 
       await runTransaction(db, async (transaction) => {
-        let stockRef;
+        let stockRef: ReturnType<typeof doc>;
         let finalProduct = entryForm.product;
-        let finalPrice = Number(entryForm.unitPrice);
-        
+        const finalPrice = Number(entryForm.unitPrice);
+        const valueDelta = qty * finalPrice;
+
         if (isNew) {
           stockRef = doc(collection(db, 'depots', entryForm.depotId, 'stock'));
           const payload = computeStockPayload({
             productName: entryForm.product,
+            stockType: 'unitized',
             units: qty,
-            container: entryForm.container || 'LO-NEW',
+            container: entryForm.container || '',
             depotId: entryForm.depotId,
             costPrice: finalPrice,
             costCurrency: entryForm.currency,
             expirationDate: entryForm.expirationDate || null,
-            status: 'stored'
+            status: 'stored',
           });
-          transaction.set(stockRef, {
-            ...payload,
-            id: stockRef.id,
-            aging_days: 0,
-            fefo_score: 100,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            createdBy: userId
+          await applyMovement(transaction, stockRef, doc(db, 'depots', entryForm.depotId), {
+            movementId,
+            mode:          'create',
+            type:          'entry',
+            quantityDelta: qty,
+            costDelta:     valueDelta,
+            reason:        `Entrée ${entryForm.type}`,
+            notes:         entryForm.container ? `Réf: ${entryForm.container}` : undefined,
+            userId,
+            userName,
+            createPayload: { ...payload } as Record<string, unknown>,
           });
         } else {
           stockRef = doc(db, 'depots', entryForm.depotId, 'stock', entryForm.stockId);
           const stockDoc = await transaction.get(stockRef);
           if (!stockDoc.exists()) throw new Error("Stock introuvable");
-          
           const currentData = stockDoc.data() as any;
-          finalProduct = currentData.productName || currentData.product;
-          
-          // Use computeStockPayload to calculate new totals for update too
-          const updatedPayload = computeStockPayload({
-            ...currentData,
-            units: (Number(currentData.units || currentData.quantity || 0) + qty).toString(),
-            costPrice: finalPrice // Update price to latest
-          });
-
-          transaction.update(stockRef, {
-            ...updatedPayload,
-            updatedAt: serverTimestamp()
+          finalProduct = currentData.productName ?? currentData.product;
+          await applyMovement(transaction, stockRef, doc(db, 'depots', entryForm.depotId), {
+            movementId,
+            type:          'entry',
+            quantityDelta: qty,
+            costDelta:     valueDelta,
+            reason:        `Entrée ${entryForm.type}`,
+            notes:         entryForm.container ? `Réf: ${entryForm.container}` : undefined,
+            userId,
+            userName,
           });
         }
 
-        const valueDelta = qty * finalPrice;
-
-        // Update Depot Load
-        transaction.update(doc(db, 'depots', entryForm.depotId), {
-          current_load: increment(qty),
-          updatedAt: serverTimestamp()
-        });
-
-        // Global Stats
         transaction.set(doc(db, 'stats', 'global'), {
           valeurStock: increment(valueDelta),
           totalCartons: increment(qty),
-          lastUpdated: serverTimestamp()
+          lastUpdated: serverTimestamp(),
         }, { merge: true });
 
-        // Log
         transaction.set(doc(collection(db, 'logs')), {
           type: `ENTREE_${entryForm.type.toUpperCase()}`,
-          message: `${entryForm.type} : ${finalProduct} (+${qty} CTN) ajouté par ${userName} dans ${depots.find(d => d.id === entryForm.depotId)?.name}`,
+          message: `${entryForm.type} : ${finalProduct} (+${qty} CTN) par ${userName} dans ${depots.find(d => d.id === entryForm.depotId)?.name}`,
           userId,
           timestamp: serverTimestamp(),
           quantity: qty,
-          details: { ...entryForm, value: valueDelta }
+          details: { ...entryForm, value: valueDelta },
         });
       });
 
@@ -216,62 +208,71 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
   };
 
   const handleExitSubmit = async () => {
-    if (!isExitValid || !selectedLotForExit) return;
+    if (!isExitValid) return;
 
     setLoading(true);
     try {
-      const qty = Number(exitForm.quantity);
-      const userName = auth.currentUser?.displayName || 'Agent';
-      const userId = auth.currentUser?.uid;
-      const dId = exitForm.depotId;
+      const qty        = Number(exitForm.quantity);
+      const userName   = auth.currentUser?.displayName || 'Agent';
+      const userId     = auth.currentUser?.uid;
+      const dId        = exitForm.depotId;
+      const movementId = doc(collection(db, 'movements')).id;
 
       await runTransaction(db, async (transaction) => {
-        const stockRef = doc(db, 'depots', dId, 'stock', exitForm.lotId);
-        const unitVal = selectedLotForExit.unitPrice || (selectedLotForExit.cost_basis / selectedLotForExit.quantity);
+        const stockRef  = doc(db, 'depots', dId, 'stock', exitForm.lotId);
+        const stockSnap = await transaction.get(stockRef);
+        if (!stockSnap.exists()) throw new Error("Lot introuvable en base");
+
+        const current    = stockSnap.data() as any;
+        const currentQty = current.quantity ?? 0;
+        if (qty > currentQty) throw new Error(`Stock insuffisant (disponible: ${currentQty})`);
+
+        const currentCostBasis = current.costBasis ?? current.cost_basis ?? 0;
+        const unitVal  = current.costPrice ?? current.unitPrice
+          ?? (currentQty > 0 ? currentCostBasis / currentQty : 0);
         const valDelta = qty * unitVal;
 
-        transaction.update(stockRef, {
-          quantity: increment(-qty),
-          cartons: increment(-qty),
-          cost_basis: increment(-valDelta),
-          updatedAt: serverTimestamp()
-        });
-
-        transaction.update(doc(db, 'depots', dId), {
-          current_load: increment(-qty),
-          updatedAt: serverTimestamp()
+        await applyMovement(transaction, stockRef, doc(db, 'depots', dId), {
+          movementId,
+          type:          'exit',
+          quantityDelta: -qty,
+          costDelta:     -valDelta,
+          reason:        `Sortie ${exitForm.type}`,
+          client:        exitForm.customer,
+          userId,
+          userName,
         });
 
         transaction.set(doc(db, 'stats', 'global'), {
           valeurStock: increment(-valDelta),
           totalCartons: increment(-qty),
-          lastUpdated: serverTimestamp()
+          lastUpdated: serverTimestamp(),
         }, { merge: true });
 
         transaction.set(doc(collection(db, 'logs')), {
           type: `SORTIE_${exitForm.type.toUpperCase()}`,
-          message: `${exitForm.type} : Sortie de ${selectedLotForExit.product} (-${qty} CTN) pour ${exitForm.customer} validée par ${userName}`,
+          message: `Sortie de ${current.productName ?? current.product} (-${qty}) pour ${exitForm.customer} par ${userName}`,
           userId,
           timestamp: serverTimestamp(),
           quantity: qty,
-          details: { ...exitForm, valueDeducted: valDelta }
+          details: { ...exitForm, valueDeducted: valDelta },
         });
       });
 
       showToast("Stock déduit et logs archivés", "success");
       onBack();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast("Échec de la transaction de sortie", "error");
+      showToast(err.message || "Échec de la transaction de sortie", "error");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="h-screen bg-[#F8FAFC] max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
+    <div className="h-screen bg-surface-page max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden">
       {/* HEADER PREMIUM */}
-      <header className="bg-ocean-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-50">
+      <header className="bg-brand-dark p-6 rounded-b-[40px] shadow-xl relative overflow-hidden sticky top-0 z-50">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl p-6" />
         <div className="flex items-center justify-between relative z-10">
           <div className="flex items-center gap-4">
@@ -280,7 +281,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
             </button>
             <h1 className="text-xl font-black text-white uppercase tracking-tighter">Gestion Inventaire</h1>
           </div>
-          <div className="w-10 h-10 bg-ocean-soft rounded-2xl flex items-center justify-center text-ocean-primary shadow-xl">
+          <div className="w-10 h-10 bg-surface-subtle rounded-2xl flex items-center justify-center text-brand shadow-xl">
              <History size={20} />
           </div>
         </div>
@@ -291,7 +292,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
              onClick={() => setActiveTab('ENTREE')}
              className={cn(
                "flex-1 py-4 rounded-[1.8rem] text-xs font-black uppercase tracking-widest transition-all",
-               activeTab === 'ENTREE' ? "bg-white text-ocean-dark shadow-xl" : "text-white/40"
+               activeTab === 'ENTREE' ? "bg-white text-brand-dark shadow-xl" : "text-white/40"
              )}
            >
               Entrée / Ajout
@@ -300,7 +301,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
              onClick={() => setActiveTab('SORTIE')}
              className={cn(
                "flex-1 py-4 rounded-[1.8rem] text-xs font-black uppercase tracking-widest transition-all",
-               activeTab === 'SORTIE' ? "bg-white text-ocean-dark shadow-xl" : "text-white/40"
+               activeTab === 'SORTIE' ? "bg-white text-brand-dark shadow-xl" : "text-white/40"
              )}
            >
               Sortie / Bon
@@ -314,13 +315,13 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
             initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
             className="space-y-6"
           >
-             <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 space-y-5">
+             <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-border-default space-y-5">
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">CHOISIR DÉPÔT *</label>
+                  <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">CHOISIR DÉPÔT *</label>
                   <select 
                     value={entryForm.depotId} 
                     onChange={e => setEntryForm(p => ({ ...p, depotId: e.target.value, stockId: 'NEW' }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none focus:ring-4 focus:ring-ocean-primary/5 shadow-sm"
+                    className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none focus:ring-4 focus:ring-brand/5 shadow-sm"
                   >
                     <option value="">Sélectionner un dépôt...</option>
                     {depots.map(d => (
@@ -330,12 +331,12 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">CHOISIR STOCK *</label>
+                  <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">CHOISIR STOCK *</label>
                   <select 
                     disabled={!entryForm.depotId}
                     value={entryForm.stockId} 
                     onChange={e => setEntryForm(p => ({ ...p, stockId: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none disabled:opacity-50 shadow-sm"
+                    className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none disabled:opacity-50 shadow-sm"
                   >
                     <option value="NEW">+ NOUVEAU PRODUIT</option>
                     {filteredStocks.map(s => (
@@ -355,11 +356,11 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                     placeholder="Montant"
                   />
                   <div className="space-y-2">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Devise</label>
+                    <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">Devise</label>
                     <select 
                       value={entryForm.currency} 
                       onChange={e => setEntryForm(p => ({ ...p, currency: e.target.value }))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none shadow-sm"
+                      className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none shadow-sm"
                     >
                       <option value="XOF">FCFA (XOF)</option>
                       <option value="EUR">EURO (EUR)</option>
@@ -404,11 +405,11 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                     placeholder="0"
                   />
                    <div className="space-y-2">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Motif</label>
+                    <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">Motif</label>
                     <select 
                       value={entryForm.type} 
                       onChange={e => setEntryForm(p => ({ ...p, type: e.target.value as any }))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none shadow-sm"
+                      className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none shadow-sm"
                     >
                       {['Standard', 'Transfert', 'Retour', 'Ajustement'].map(t => (
                         <option key={t} value={t}>{t}</option>
@@ -431,16 +432,16 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                   <motion.div 
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
-                    className="bg-ocean-soft/30 rounded-2xl p-4 border border-ocean-soft flex items-center justify-between"
+                    className="bg-surface-subtle/30 rounded-2xl p-4 border border-ocean-soft flex items-center justify-between"
                   >
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-ocean-primary uppercase tracking-widest mb-1">Valeur de l'opération</span>
-                      <span className="text-sm font-black text-ocean-dark">
-                        {entryValue.toLocaleString()} <span className="text-[10px] opacity-40">{entryForm.currency}</span>
+                      <span className="text-label font-black text-brand uppercase tracking-widest mb-1">Valeur de l'opération</span>
+                      <span className="text-sm font-black text-brand-dark">
+                        {entryValue.toLocaleString()} <span className="text-label opacity-40">{entryForm.currency}</span>
                       </span>
                     </div>
                     <div className="text-right">
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 capitalize">
+                      <div className="flex items-center gap-1 text-label font-bold text-text-muted capitalize">
                         <span>{entryForm.quantity} CTN</span>
                         <span className="opacity-30">@</span>
                         <span>{entryForm.unitPrice}</span>
@@ -453,7 +454,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
              <button 
                onClick={handleEntrySubmit}
                disabled={loading}
-               className="w-full py-7 bg-ocean-primary text-white rounded-[2.5rem] font-black uppercase text-xs tracking-widest shadow-2xl shadow-ocean-primary/30 flex items-center justify-center gap-3 transition-all active:scale-95"
+               className="w-full py-7 bg-brand text-white rounded-[2.5rem] font-black uppercase text-xs tracking-widest shadow-2xl shadow-brand/30 flex items-center justify-center gap-3 transition-all active:scale-95"
              >
                 {loading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ArrowDownRight size={24} />}
                 Valider Entrée DEPOTEK
@@ -464,13 +465,13 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
             initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
             className="space-y-6"
           >
-             <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 space-y-6">
+             <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-border-default space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">CHOISIR DÉPÔT *</label>
+                  <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">CHOISIR DÉPÔT *</label>
                   <select 
                     value={exitForm.depotId} 
                     onChange={e => setExitForm(p => ({ ...p, depotId: e.target.value, lotId: '' }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none shadow-sm"
+                    className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none shadow-sm"
                   >
                     <option value="">Sélectionner un dépôt...</option>
                     {depots.map(d => (
@@ -480,12 +481,12 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">SÉLECTIONNER LOT *</label>
+                  <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">SÉLECTIONNER LOT *</label>
                   <select 
                     disabled={!exitForm.depotId}
                     value={exitForm.lotId} 
                     onChange={e => setExitForm(p => ({ ...p, lotId: e.target.value }))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none disabled:opacity-50 shadow-sm"
+                    className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none disabled:opacity-50 shadow-sm"
                   >
                     <option value="">Choisir un produit en rayon...</option>
                     {filteredStocks.map(s => (
@@ -515,11 +516,11 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                     placeholder="0"
                   />
                   <div className="space-y-2">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Motif</label>
+                    <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">Motif</label>
                     <select 
                       value={exitForm.type} 
                       onChange={e => setExitForm(p => ({ ...p, type: e.target.value as any }))}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-[15px] font-black text-slate-900 outline-none shadow-sm"
+                      className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 text-[15px] font-black text-text-primary outline-none shadow-sm"
                     >
                        {['Standard', 'Transfert', 'Retour', 'Ajustement'].map(t => (
                         <option key={t} value={t}>{t}</option>
@@ -529,12 +530,15 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                 </div>
 
                 {/* Stock Warning UI */}
-                {selectedLotForExit && Number(exitForm.quantity) > (selectedLotForExit.quantity || 0) && (
-                  <div className="p-4 bg-red-50 rounded-2xl border border-red-100 flex items-center gap-3 text-red-600">
-                    <AlertTriangle size={18} />
-                    <span className="text-[10px] font-black uppercase">Stock Insuffisant (Max: {selectedLotForExit.quantity})</span>
-                  </div>
-                )}
+                {selectedLotForExit && (() => {
+                  const available = selectedLotForExit.quantity;
+                  return Number(exitForm.quantity) > available ? (
+                    <div className="p-4 bg-status-danger-bg rounded-2xl border border-status-danger/20 flex items-center gap-3 text-status-danger">
+                      <AlertTriangle size={18} />
+                      <span className="text-label font-black uppercase">Stock Insuffisant (Max: {available})</span>
+                    </div>
+                  ) : null;
+                })()}
              </div>
 
             {/* Real-time Value Preview (Exit) */}
@@ -545,14 +549,14 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                 className="bg-red-50/50 rounded-2xl p-5 border border-red-100 flex items-center justify-between mt-2"
               >
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">Impact Financier</span>
+                  <span className="text-label font-black text-red-500 uppercase tracking-widest mb-1">Impact Financier</span>
                   <span className="text-sm font-black text-red-700">
-                    - {exitValue.toLocaleString()} <span className="text-[10px] opacity-40">XOF</span>
+                    - {exitValue.toLocaleString()} <span className="text-label opacity-40">XOF</span>
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Lot: {exitForm.lotId?.slice(-4)}</span>
-                  <div className="text-[10px] font-bold text-slate-400 italic">
+                  <span className="text-micro font-black text-text-muted uppercase tracking-widest block mb-1">Lot: {exitForm.lotId?.slice(-4)}</span>
+                  <div className="text-label font-bold text-text-muted italic">
                     Déduction auto
                   </div>
                 </div>
@@ -564,7 +568,7 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
                 disabled={loading || !isExitValid}
                 className={cn(
                   "w-full py-7 rounded-[2.5rem] font-black uppercase text-xs tracking-widest shadow-2xl flex items-center justify-center gap-3 transition-all active:scale-95",
-                  isExitValid ? "bg-orange-500 text-white shadow-orange-500/30" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                  isExitValid ? "bg-orange-500 text-white shadow-orange-500/30" : "bg-surface-subtle text-text-muted cursor-not-allowed"
                 )}
              >
                 {loading ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <TrendingDown size={24} />}
@@ -573,16 +577,16 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
           </motion.div>
         )}
 
-        <div className="p-6 bg-slate-900 rounded-[32px] shadow-2xl text-white relative overflow-hidden mt-8">
+        <div className="p-6 bg-brand-ink rounded-[32px] shadow-2xl text-white relative overflow-hidden mt-8">
            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-xl" />
            <div className="relative z-10 flex items-center gap-4">
               <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/10 shadow-inner">
                  <User size={24} className="text-white/60" />
               </div>
               <div>
-                 <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] block mb-0.5">Agent Certifié</span>
+                 <span className="text-label font-black text-white/30 uppercase tracking-[0.3em] block mb-0.5">Agent Certifié</span>
                  <p className="text-base font-black tracking-tight">{auth.currentUser?.displayName || 'Agent DEPOTEK'}</p>
-                 <p className="text-[11px] font-bold text-ocean-primary uppercase tracking-widest">Opérateur DEPOTEK Hub 1</p>
+                 <p className="text-caption font-bold text-brand uppercase tracking-widest">Opérateur DEPOTEK Hub 1</p>
               </div>
            </div>
         </div>
@@ -593,9 +597,9 @@ export const StockMovementForm = ({ onBack }: { onBack: () => void }) => {
 
 const InputGroup = ({ label, icon, value, onChange, placeholder, type = "text", inputMode, autoCapitalize }: any) => (
     <div className="space-y-2 flex-1">
-       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
+       <label className="text-caption font-black text-text-muted uppercase tracking-widest ml-1">{label}</label>
        <div className="relative">
-          <div className="absolute left-5 top-1/2 -translate-y-1/2 text-ocean-primary opacity-50">
+          <div className="absolute left-5 top-1/2 -translate-y-1/2 text-brand opacity-50">
              {icon}
           </div>
           <input 
@@ -605,7 +609,7 @@ const InputGroup = ({ label, icon, value, onChange, placeholder, type = "text", 
              autoCapitalize={autoCapitalize}
              onChange={(e) => onChange(e.target.value)}
              placeholder={placeholder}
-             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 pl-14 text-[15px] font-black text-slate-900 outline-none focus:ring-4 focus:ring-ocean-primary/5 transition-all placeholder:text-slate-300 shadow-sm"
+             className="w-full bg-surface-subtle border border-border-default rounded-2xl p-5 pl-14 text-[15px] font-black text-text-primary outline-none focus:ring-4 focus:ring-brand/5 transition-all placeholder:text-text-muted shadow-sm"
           />
        </div>
     </div>

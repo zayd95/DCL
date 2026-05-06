@@ -1,110 +1,244 @@
-
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   DEPOTEK DESIGN SYSTEM — v1.0
+   Semantic-first token system. Devs pick a token, not a shade.
+   Rule: never use raw hex values or arbitrary Tailwind brackets in components.
+   ───────────────────────────────────────────────────────────────────────────── */
+
 @theme {
-  /* Anciennes couleurs conservées pour rétrocompatibilité temporaire */
-  --color-ocean-dark: #0d1642;
-  --color-ocean-primary: #1a237e;
-  --color-ocean-light: #F1F4FF;
-  --color-ocean-soft: #F8FAFF;
-  --color-white: #FFFFFF;
-  --color-gray-100: #F6F9FC;
-  --color-gray-200: #E3E8EE;
-  --color-gray-300: #A3ACB9;
-  --color-gray-600: #4F566B;
-  --color-gray-900: #1A1F36;
-  --color-accent-coral: #FF6B6B;
-  --color-accent-gold: #FFB800;
-  --color-success: #00C853;
-  
-  /* DEPOTEK SEMANTIC TOKENS */
-  --color-surface-base: #FFFFFF;
-  --color-surface-muted: #F6F9FC;
-  --color-surface-ocean: #1a237e;
-  --color-surface-ocean-soft: #F8FAFF;
-  --color-surface-danger: #FFF5F5;
-  --color-surface-warning: #FFFBEB;
-  --color-surface-success: #F0FDF4;
 
-  --color-text-base: #1A1F36;
-  --color-text-muted: #4F566B;
-  --color-text-subtle: #A3ACB9;
-  --color-text-ocean: #1a237e;
-  --color-text-inverse: #FFFFFF;
-  --color-text-danger: #FF6B6B;
-  --color-text-warning: #FFB800;
-  --color-text-success: #00C853;
-  
-  --color-border-subtle: #E3E8EE;
+  /* ── SURFACES ─────────────────────────────────────────────────────────── */
+  --color-surface-page:       #F8FAFC;   /* canonical app bg — every screen root */
+  --color-surface-card:       #FFFFFF;   /* cards, modals, bottom sheets */
+  --color-surface-subtle:     #F1F5F9;   /* inputs, hover fills, section bg */
 
+  /* ── BRAND ────────────────────────────────────────────────────────────── */
+  --color-brand:              #1a237e;   /* primary CTA, active states */
+  --color-brand-dark:         #0d1642;   /* header gradient, login bg */
+  --color-brand-ink:          #0A2540;   /* headings, icon buttons */
+  --color-brand-tint:         #F1F4FF;   /* selected chips, active card bg */
+
+  /* ── TEXT ─────────────────────────────────────────────────────────────── */
+  --color-text-primary:       #1A1F36;   /* body text, form values */
+  --color-text-secondary:     #4F566B;   /* labels, sub-text */
+  --color-text-muted:         #A3ACB9;   /* placeholders, disabled, timestamps */
+
+  /* ── BORDERS ──────────────────────────────────────────────────────────── */
+  --color-border-default:     #E3E8EE;   /* cards, dividers */
+  --color-border-strong:      #C8D0DC;   /* inputs at rest */
+  --color-border-focus:       #1a237e;   /* input focus ring */
+
+  /* ── STATUS ───────────────────────────────────────────────────────────── */
+  --color-status-success:     #00C853;   /* en stock, healthy FEFO */
+  --color-status-warning:     #FFB800;   /* FEFO 8–30 days, stock bas */
+  --color-status-danger:      #FF6B6B;   /* FEFO <7 days, destructive */
+  --color-status-info:        #3B82F6;   /* transfers, neutral */
+
+  /* ── STATUS SURFACES ──────────────────────────────────────────────────── */
+  --color-status-success-bg:  #E6F9EE;
+  --color-status-warning-bg:  #FFF8E1;
+  --color-status-danger-bg:   #FFF0EF;
+  --color-status-info-bg:     #EFF6FF;
+
+  /* ── INTERACTIVE STATES ───────────────────────────────────────────────── */
+  --color-btn-hover:          #151c6b;   /* primary button hover */
+  --color-btn-pressed:        #0f1453;   /* primary button pressed */
+  --color-btn-disabled:       #A3ACB9;   /* any button disabled */
+
+  /* ── TYPOGRAPHY SCALE ─────────────────────────────────────────────────── */
+  /* HARD RULE: never use text-[8px]…text-[12px]. Use only these 6 sizes.   */
+  --text-micro:    0.5625rem;  /* 9px  — status chips, tight badges */
+  --text-label:    0.625rem;   /* 10px — section headers, tab labels */
+  --text-caption:  0.6875rem;  /* 11px — helper text, counters */
+  --text-body:     0.8125rem;  /* 13px — form values, descriptions */
+  --text-title:    1rem;       /* 16px — card headings, modal titles */
+  --text-display:  1.75rem;    /* 28px — KPI values only */
+
+  /* ── FONT ─────────────────────────────────────────────────────────────── */
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+
+  /* ── LEGACY ALIASES ───────────────────────────────────────────────────── */
+  /* Kept for backward compatibility. Migrate screens then delete these.    */
+  --color-ocean-dark:         #0d1642;
+  --color-ocean-primary:      #1a237e;
+  --color-ocean-light:        #F1F4FF;
+  --color-ocean-soft:         #F8FAFF;
+  --color-white:              #FFFFFF;
+  --color-gray-100:           #F6F9FC;
+  --color-gray-200:           #E3E8EE;
+  --color-gray-300:           #A3ACB9;
+  --color-gray-600:           #4F566B;
+  --color-gray-900:           #1A1F36;
+  --color-accent-coral:       #FF6B6B;
+  --color-accent-gold:        #FFB800;
+  --color-success:            #00C853;
 }
 
+/* ── SPACING SCALE ──────────────────────────────────────────────────────────
+   Base unit: 4px. Use var(--space-N) directly in component CSS.
+   Tailwind utilities (p-4, gap-3…) still work as normal alongside these.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --shadow-card:   0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-modal:  0 25px 50px -12px rgba(0,0,0,0.25);
+  --shadow-button: 0 8px 20px rgba(26,35,126,0.25);
+  --shadow-inner:  inset 0 2px 4px rgba(0,0,0,0.05);
+
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+}
+
+/* ── BASE ─────────────────────────────────────────────────────────────────── */
 @layer base {
   body {
-    @apply bg-gray-100 text-gray-900;
+    @apply bg-surface-page text-text-primary font-sans;
     -webkit-tap-highlight-color: transparent;
   }
 }
 
+/* ── UTILITIES ────────────────────────────────────────────────────────────── */
 @layer utilities {
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  
-  .animate-spin-slow {
-    animation: spin 3s linear infinite;
-  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .animate-spin-slow { animation: spin 3s linear infinite; }
 }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  to   { transform: rotate(360deg); }
 }
 
+/* ── COMPONENTS ───────────────────────────────────────────────────────────── */
 @layer components {
+
+  /* PAGE CONTAINER — replaces every bg-[#F8FAFC] max-w-[480px] pattern */
+  .page-container {
+    @apply h-screen bg-surface-page max-w-[480px] mx-auto relative flex flex-col font-sans overflow-hidden;
+  }
+
+  /* BUTTONS */
   .btn-primary {
-    @apply bg-ocean-primary text-white p-4 rounded-xl font-bold transition-all active:scale-95 text-sm flex items-center justify-center gap-2;
+    @apply bg-brand text-white font-black text-caption uppercase tracking-widest
+           px-5 py-4 rounded-xl flex items-center justify-center gap-2
+           transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: var(--shadow-button);
   }
-  
-  .card-ocean {
-    @apply bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden;
+  .btn-primary:hover:not(:disabled)   { background-color: var(--color-btn-hover); }
+  .btn-primary:active:not(:disabled)  { background-color: var(--color-btn-pressed); }
+  .btn-primary:focus-visible {
+    outline: 3px solid rgba(26,35,126,0.35);
+    outline-offset: 2px;
   }
-  
-  .value-card {
+
+  .btn-outline {
+    @apply bg-transparent text-brand font-black text-caption uppercase tracking-widest
+           px-5 py-4 rounded-xl flex items-center justify-center gap-2
+           border-2 border-brand transition-all active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:border-border-default disabled:text-text-muted;
+  }
+  .btn-outline:hover:not(:disabled) { @apply bg-brand-tint; }
+
+  .btn-ghost {
+    @apply bg-transparent text-text-secondary font-bold text-caption
+           px-4 py-3 rounded-xl flex items-center justify-center gap-2
+           transition-all active:scale-95;
+  }
+  .btn-ghost:hover { @apply bg-surface-subtle; }
+
+  .btn-danger {
+    @apply bg-status-danger text-white font-black text-caption uppercase tracking-widest
+           px-5 py-4 rounded-xl flex items-center justify-center gap-2
+           transition-all active:scale-95;
+  }
+
+  /* CARDS */
+  .card {
+    @apply bg-surface-card rounded-2xl border border-border-default overflow-hidden;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-glass {
     @apply bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 text-white;
   }
 
-  .stat-pill {
-    @apply bg-white/10 rounded-xl p-3 text-center;
+  /* INPUT FIELD */
+  .input-field {
+    @apply w-full bg-surface-subtle text-text-primary font-bold text-body
+           px-4 py-3 rounded-xl border border-transparent outline-none
+           placeholder:text-text-muted
+           focus:bg-surface-card focus:border-border-focus
+           disabled:cursor-not-allowed disabled:text-text-muted;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
   }
+  .input-field:focus-visible {
+    box-shadow: 0 0 0 3px rgba(26,35,126,0.2);
+  }
+  .input-field.error {
+    @apply border-status-danger bg-status-danger-bg;
+  }
+
+  /* SECTION LABEL */
+  .section-label {
+    @apply text-label font-black uppercase tracking-widest text-text-muted;
+  }
+  .section-label-brand {
+    @apply text-label font-black uppercase tracking-widest text-brand;
+  }
+
+  /* STATUS BADGES */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+           text-micro font-black uppercase tracking-wide;
+  }
+  .badge-success { @apply bg-status-success-bg text-status-success; }
+  .badge-warning { @apply bg-status-warning-bg text-amber-700; }
+  .badge-danger  { @apply bg-status-danger-bg  text-red-600; }
+  .badge-info    { @apply bg-status-info-bg    text-status-info; }
+
+  /* MODAL OVERLAY */
+  .modal-overlay {
+    @apply fixed inset-0 backdrop-blur-sm;
+    background: rgba(10, 37, 64, 0.75);
+  }
+
+  /* BOTTOM SHEET */
+  .bottom-sheet {
+    @apply bg-surface-card rounded-t-[2rem] p-6 pb-10 shadow-2xl;
+  }
+
+  /* DRAG HANDLE */
+  .drag-handle {
+    @apply w-10 h-1 bg-border-default rounded-full mx-auto mb-5;
+  }
+
+  /* LEGACY — kept until screens are migrated */
+  .card-ocean {
+    @apply bg-surface-card rounded-2xl border border-border-default overflow-hidden;
+    box-shadow: var(--shadow-card);
+  }
+  .value-card  { @apply bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl p-6 text-white; }
+  .stat-pill   { @apply bg-white/10 rounded-xl p-3 text-center; }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  @apply bg-gray-100;
-}
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-200 rounded-full;
-}
+/* ── SCROLLBAR ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; }
+::-webkit-scrollbar-track { @apply bg-surface-page; }
+::-webkit-scrollbar-thumb { @apply bg-border-default rounded-full; }
 
+/* ── PRINT ────────────────────────────────────────────────────────────────── */
 @media print {
-  .no-print {
-    display: none !important;
-  }
-  .print-only {
-    display: block !important;
-  }
+  .no-print    { display: none !important; }
+  .print-only  { display: block !important; }
 }
-
-.print-only {
-  display: none;
-}
-
+.print-only { display: none; }

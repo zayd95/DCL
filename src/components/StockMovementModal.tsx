@@ -19,19 +19,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { applyMovement, applyTransfer } from '../lib/stockService';
 import { db, auth } from '../lib/firebase';
-import { 
-  doc, 
-  runTransaction, 
-  serverTimestamp, 
-  increment, 
+import {
+  doc,
+  runTransaction,
+  serverTimestamp,
+  increment,
   collection,
-  setDoc,
-  collectionGroup,
   query,
   where,
   getDocs,
-  DocumentReference
+  DocumentReference,
 } from 'firebase/firestore';
 import { useToast } from '../context/ToastContext';
 import { StockItem, Depot, StockMovement } from '../types';
@@ -57,24 +56,19 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
   const [loading, setLoading] = useState(false);
 
   const currentDepot = useMemo(() => {
-    return depots.find(d => d.id === (stock.depotId || stock.depot_id));
+    return depots.find(d => d.id === stock.depotId);
   }, [depots, stock]);
 
   const availableDepots = useMemo(() => {
-    return depots.filter(d => d.id !== (stock.depotId || stock.depot_id));
+    return depots.filter(d => d.id !== stock.depotId);
   }, [depots, stock]);
 
   const isValid = useMemo(() => {
     const qty = parseInt(quantity);
     if (isNaN(qty) || qty <= 0) return false;
-    
-    if (mode === 'exit' || mode === 'transfer') {
-      if (qty > (stock.quantity || stock.cartons || 0)) return false;
-    }
-    
+    if ((mode === 'exit' || mode === 'transfer') && qty > stock.quantity) return false;
     if (mode === 'transfer' && !targetDepotId) return false;
     if (mode === 'exit' && !client) return false;
-    
     return true;
   }, [mode, quantity, targetDepotId, client, stock]);
 
@@ -83,162 +77,113 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
     setLoading(true);
 
     try {
-      const amount = parseInt(quantity);
-      const sourceDepotId = stock.depotId || stock.depot_id || '';
-      const userName = auth.currentUser?.displayName || 'Agent DEPOTEK';
-      const userId = auth.currentUser?.uid || 'anon';
-      
-      const unitValue = stock.unitPrice || (stock.cost_basis ? (stock.cost_basis / (stock.quantity || 1)) : 0);
-      const valDelta = amount * unitValue;
+      const amount     = parseInt(quantity);
+      const sourceDepotId = stock.depotId;
+      const userName   = auth.currentUser?.displayName || 'Agent DEPOTEK';
+      const userId     = auth.currentUser?.uid || 'anon';
+
+      // costPrice per unit; fall back to proportional calculation from costBasis
+      const unitValue = stock.costPrice ?? (stock.quantity > 0 ? stock.costBasis / stock.quantity : 0);
+      const valDelta  = amount * unitValue;
+
+      // Generate movement IDs BEFORE the transaction — idempotency keys for app-layer retries.
+      const movementId  = doc(collection(db, 'movements')).id; // for entry/exit/adjustment
+      const sourceMovId = doc(collection(db, 'movements')).id; // for transfer source leg
+      const destMovId   = doc(collection(db, 'movements')).id; // for transfer dest leg
 
       await runTransaction(db, async (transaction) => {
         const sourceStockRef = docRef || doc(db, 'depots', sourceDepotId, 'stock', stock.id);
-        const sourceDepotRef = sourceDepotId ? doc(db, 'depots', sourceDepotId) : null;
-        const statsRef = doc(db, 'stats', 'global');
-        
-        const currentQty = stock.quantity || stock.cartons || 0;
+        const sourceDepotRef = doc(db, 'depots', sourceDepotId);
+        const statsRef       = doc(db, 'stats', 'global');
 
-        // 1. UPDATE SOURCE STOCK
-        if (mode === 'exit' || mode === 'transfer') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(-amount),
-            cartons: increment(-amount),
-            cost_basis: increment(-valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(-amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } else if (mode === 'entry') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(amount),
-            cartons: increment(amount),
-            cost_basis: increment(valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } else if (mode === 'adjustment') {
-          transaction.update(sourceStockRef, {
-            quantity: increment(amount),
-            cartons: increment(amount),
-            cost_basis: increment(valDelta),
-            updatedAt: serverTimestamp()
-          });
-          if (sourceDepotRef) {
-            transaction.update(sourceDepotRef, {
-              current_load: increment(amount),
-              updatedAt: serverTimestamp()
-            });
-          }
-        }
-
-        // 2. CREATE LOGS & MOVEMENTS
-        const movementRef = doc(collection(sourceStockRef, 'movements'));
-        transaction.set(movementRef, {
-          type: mode,
-          quantity: amount,
-          previousQty: currentQty,
-          newQty: (mode === 'exit' || mode === 'transfer') ? currentQty - amount : currentQty + amount,
-          reason,
-          client: mode === 'exit' ? client : null,
-          targetDepotId: mode === 'transfer' ? targetDepotId : null,
-          notes,
-          userId,
-          userName,
-          timestamp: serverTimestamp()
-        });
-
-        // 3. HANDLE TRANSFER DESTINATION
-        if (mode === 'transfer' && targetDepotId) {
-          const destDepotRef = doc(db, 'depots', targetDepotId);
-          const targetDepot = depots.find(d => d.id === targetDepotId);
-          
-          // Check if same product exists in target depot via SKU
-          const destStockQuery = query(
+        // 1. NON-TRANSFER: applyMovement handles source directly
+        // 2. TRANSFER: applyTransfer owns both legs — never call raw applyMovement for transfers
+        if (mode === 'transfer') {
+          const destDepotRef  = doc(db, 'depots', targetDepotId);
+          const destStockSnap = await getDocs(query(
             collection(db, 'depots', targetDepotId, 'stock'),
-            where('sku', '==', stock.sku || 'N/A')
+            where('sku', '==', stock.sku || 'N/A'),
+          ));
+          const transferWeight = stock.totalWeightKg > 0
+            ? (stock.totalWeightKg / stock.quantity) * amount
+            : 0;
+          const destStockRef = destStockSnap.empty
+            ? doc(collection(db, 'depots', targetDepotId, 'stock'))
+            : destStockSnap.docs[0].ref;
+
+          await applyTransfer(
+            transaction,
+            sourceStockRef, sourceDepotRef,
+            destStockRef,   destDepotRef,
+            {
+              amount,
+              costDelta:        valDelta,
+              userId,
+              userName,
+              currentDepotName: currentDepot?.name,
+              notes:            notes || undefined,
+              sourceMovementId: sourceMovId,
+              destMovementId:   destMovId,
+              isNewLot:         destStockSnap.empty,
+              destCreatePayload: destStockSnap.empty ? {
+                sku:            stock.sku,
+                productName:    stock.productName,
+                category:       stock.category,
+                supplier:       stock.supplier,
+                container:      stock.container,
+                lotNumber:      stock.lotNumber,
+                depotId:        targetDepotId,
+                stockType:      stock.stockType,
+                unitType:       stock.unitType,
+                unitWeight:     stock.unitWeight,
+                totalWeightKg:  transferWeight,
+                costPrice:      stock.costPrice,
+                costPer:        stock.costPer,
+                costCurrency:   stock.costCurrency,
+                arrivalDate:    stock.arrivalDate,
+                agingDays:      stock.agingDays,
+                fefoScore:      stock.fefoScore,
+                expirationDate: stock.expirationDate,
+                productionDate: stock.productionDate,
+                status:         'in_transit',
+                threshold:      stock.threshold,
+                sourceDoc:      stock.sourceDoc,
+                transferRef:    stock.transferRef,
+              } : undefined,
+            },
           );
-          const destStockSnap = await getDocs(destStockQuery);
-          
-          if (!destStockSnap.empty) {
-            // Merge into existing lot if SKU matches
-            const existingLotRef = destStockSnap.docs[0].ref;
-            transaction.update(existingLotRef, {
-              quantity: increment(amount),
-              cartons: increment(amount),
-              cost_basis: increment(valDelta),
-              updatedAt: serverTimestamp()
-            });
-            
-            // Add movement record to destination lot
-            const destMovementRef = doc(collection(existingLotRef, 'movements'));
-            transaction.set(destMovementRef, {
-              type: 'transfer_in',
-              quantity: amount,
-              sourceDepotId: sourceDepotId,
-              reason: `Transfert depuis ${currentDepot?.name}`,
-              userId,
-              userName,
-              timestamp: serverTimestamp()
-            });
-          } else {
-            // Create new lot in target depot
-            const newLotRef = doc(collection(db, 'depots', targetDepotId, 'stock'));
-            transaction.set(newLotRef, {
-              ...stock,
-              id: newLotRef.id,
-              quantity: amount,
-              cartons: amount,
-              depotId: targetDepotId,
-              depot_id: targetDepotId,
-              cost_basis: valDelta,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              createdBy: userId
-            });
+        } else {
+          const isDebit  = mode === 'exit';
+          const qtyDelta = isDebit ? -amount : amount;
+          const costDelta = isDebit ? -valDelta : valDelta;
 
-            // Add movement record
-            const destMovementRef = doc(collection(newLotRef, 'movements'));
-            transaction.set(destMovementRef, {
-              type: 'transfer_in',
-              quantity: amount,
-              sourceDepotId: sourceDepotId,
-              reason: `Transfert (Initial) depuis ${currentDepot?.name}`,
-              userId,
-              userName,
-              timestamp: serverTimestamp()
-            });
-          }
-
-          transaction.update(destDepotRef, {
-            current_load: increment(amount),
-            updatedAt: serverTimestamp()
+          await applyMovement(transaction, sourceStockRef, sourceDepotRef, {
+            movementId,
+            type:          mode,
+            quantityDelta: qtyDelta,
+            costDelta,
+            reason,
+            client:        mode === 'exit' ? client : undefined,
+            notes:         notes || undefined,
+            userId,
+            userName,
           });
         }
 
-        // 4. UPDATE GLOBAL STATS
+        // 3. GLOBAL STATS — transfers don't change totals (only location)
         if (mode === 'exit') {
           transaction.set(statsRef, {
-            valeurStock: increment(-valDelta),
+            valeurStock:  increment(-valDelta),
             totalCartons: increment(-amount),
-            lastUpdated: serverTimestamp()
+            lastUpdated:  serverTimestamp(),
           }, { merge: true });
         } else if (mode === 'entry' || mode === 'adjustment') {
           transaction.set(statsRef, {
-            valeurStock: increment(valDelta),
+            valeurStock:  increment(valDelta),
             totalCartons: increment(amount),
-            lastUpdated: serverTimestamp()
+            lastUpdated:  serverTimestamp(),
           }, { merge: true });
         }
-        // Transfers don't change global stats (only location)
       });
 
       showToast(`Mouvement ${mode.toUpperCase()} validé sur DEPOTEK`);
@@ -255,7 +200,7 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
   return (
     <div className="flex flex-col gap-6">
       {/* MODE TABS */}
-      <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
+      <div className="flex bg-surface-subtle p-1 rounded-2xl border border-border-default">
         <ModeTab active={mode === 'entry'} label="Entrée" icon={<ArrowDownRight size={14} />} onClick={() => setMode('entry')} color="bg-green-500" />
         <ModeTab active={mode === 'exit'} label="Sortie" icon={<ArrowUpRight size={14} />} onClick={() => setMode('exit')} color="bg-red-500" />
         <ModeTab active={mode === 'transfer'} label="Transfert" icon={<ArrowRightLeft size={14} />} onClick={() => setMode('transfer')} color="bg-blue-500" />
@@ -265,19 +210,19 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
       <div className="space-y-4">
         {/* QUANTITY */}
         <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Quantité (Cartons)</label>
+          <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Quantité (Cartons)</label>
           <div className="relative">
-            <Zap size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+            <Zap size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
             <input 
               type="number"
               value={quantity}
               placeholder="0"
               onChange={(e) => setQuantity(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 text-lg font-black text-slate-900 outline-none focus:bg-white focus:border-ocean-primary/20 transition-all"
+              className="w-full bg-surface-subtle border border-transparent rounded-2xl p-4 pl-12 text-lg font-black text-text-primary outline-none focus:bg-white focus:border-border-focus/20 transition-all"
             />
             {mode !== 'entry' && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300 uppercase">
-                Dispo: {stock.quantity || stock.cartons || 0}
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-label font-black text-text-muted uppercase">
+                Dispo: {stock.quantity}
               </span>
             )}
           </div>
@@ -290,13 +235,13 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
                initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                className="space-y-2 overflow-hidden"
             >
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Dépôt Destination</label>
+              <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Dépôt Destination</label>
               <div className="relative">
-                <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
                 <select 
                   value={targetDepotId}
                   onChange={(e) => setTargetDepotId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 text-sm font-black text-slate-900 outline-none appearance-none focus:bg-white"
+                  className="w-full bg-surface-subtle border border-transparent rounded-2xl p-4 pl-12 text-sm font-black text-text-primary outline-none appearance-none focus:bg-white"
                 >
                   <option value="">Sélectionner Dépôt...</option>
                   {availableDepots.map(d => (
@@ -315,15 +260,15 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
                initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                className="space-y-2 overflow-hidden"
             >
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Importateur / Client</label>
+              <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Importateur / Client</label>
               <div className="relative">
-                <Users size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
+                <Users size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
                 <input 
                   type="text"
                   value={client}
                   placeholder="Nom du Client"
                   onChange={(e) => setClient(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 text-sm font-black text-slate-900 outline-none focus:bg-white"
+                  className="w-full bg-surface-subtle border border-transparent rounded-2xl p-4 pl-12 text-sm font-black text-text-primary outline-none focus:bg-white"
                 />
               </div>
             </motion.div>
@@ -333,11 +278,11 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
         {/* REASON & NOTES */}
         <div className="grid grid-cols-2 gap-4">
            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Motif</label>
+              <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Motif</label>
               <select 
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 outline-none appearance-none"
+                className="w-full bg-surface-subtle border border-transparent rounded-2xl p-4 text-xs font-black text-text-primary outline-none appearance-none"
               >
                 {mode === 'exit' ? (
                   ['Vente', 'Perte / Cassé', 'Retour Fournisseur', 'Échantillon'].map(r => <option key={r} value={r}>{r}</option>)
@@ -349,21 +294,21 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
               </select>
            </div>
            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Note Libérale</label>
+              <label className="text-label font-black uppercase text-text-muted tracking-widest px-1">Note Libérale</label>
               <input 
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Obs..."
-                className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 outline-none"
+                className="w-full bg-surface-subtle border border-transparent rounded-2xl p-4 text-xs font-black text-text-primary outline-none"
               />
            </div>
         </div>
       </div>
 
       {/* SUMMARY */}
-      <div className="bg-slate-900 rounded-3xl p-5 text-white flex items-center justify-between shadow-xl">
+      <div className="bg-brand-ink rounded-3xl p-5 text-white flex items-center justify-between shadow-xl">
         <div className="flex flex-col">
-           <span className="text-[9px] font-black text-white/40 uppercase tracking-[0.2em] mb-1">Résumé Opération</span>
+           <span className="text-micro font-black text-white/40 uppercase tracking-[0.2em] mb-1">Résumé Opération</span>
            <div className="flex items-center gap-2">
               <div className={cn("w-2 h-2 rounded-full", mode === 'entry' ? "bg-green-500" : mode === 'exit' ? "bg-red-500" : "bg-blue-500")} />
               <p className="font-black text-sm uppercase">
@@ -376,14 +321,14 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
         <div className="text-right">
            {mode === 'transfer' && targetDepotId && (
              <div className="flex items-center gap-2 text-blue-400">
-                <span className="text-[9px] font-black uppercase">Vers:</span>
-                <span className="text-[10px] font-black uppercase">{depots.find(d => d.id === targetDepotId)?.name}</span>
+                <span className="text-micro font-black uppercase">Vers:</span>
+                <span className="text-label font-black uppercase">{depots.find(d => d.id === targetDepotId)?.name}</span>
              </div>
            )}
            {mode === 'exit' && client && (
              <div className="flex items-center gap-2 text-red-500">
-                <span className="text-[9px] font-black uppercase">Client:</span>
-                <span className="text-[10px] font-black uppercase truncate max-w-[80px]">{client}</span>
+                <span className="text-micro font-black uppercase">Client:</span>
+                <span className="text-label font-black uppercase truncate max-w-[80px]">{client}</span>
              </div>
            )}
         </div>
@@ -395,7 +340,7 @@ export const StockMovementModal = ({ stock, depots, onClose, onSuccess, docRef }
         onClick={handleAction}
         className={cn(
           "w-full py-6 rounded-3xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-3 transition-all active:scale-95 shadow-2xl",
-          !isValid ? "bg-slate-100 text-slate-300" : "bg-ocean-primary text-white shadow-blue-500/30"
+          !isValid ? "bg-surface-subtle text-text-muted" : "bg-brand text-white shadow-brand/30"
         )}
       >
         {loading ? (
@@ -419,10 +364,10 @@ const ModeTab = ({ active, label, icon, onClick, color }: any) => (
     onClick={onClick}
     className={cn(
       "flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl transition-all",
-      active ? `${color} text-white shadow-lg scale-[1.05] z-10` : "text-slate-400 hover:text-slate-600"
+      active ? `${color} text-white shadow-lg scale-[1.05] z-10` : "text-text-muted hover:text-text-secondary"
     )}
   >
     {icon}
-    <span className="text-[8px] font-black uppercase tracking-widest">{label}</span>
+    <span className="text-micro font-black uppercase tracking-widest">{label}</span>
   </button>
 );

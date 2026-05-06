@@ -183,10 +183,10 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
           {/* Scan Frame Overlay */}
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-64 h-64 border-2 border-white/30 rounded-[40px] relative">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-ocean-primary rounded-tl-xl" />
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-ocean-primary rounded-tr-xl" />
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-ocean-primary rounded-bl-xl" />
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-ocean-primary rounded-br-xl" />
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-brand rounded-tl-xl" />
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-brand rounded-tr-xl" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-brand rounded-bl-xl" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-brand rounded-br-xl" />
               
               {/* Scan Line Animation */}
               <motion.div 
@@ -195,7 +195,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
                 className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-ocean-primary to-transparent shadow-[0_0_15px_rgba(0,102,255,0.8)] z-10"
               />
             </div>
-            <p className="absolute bottom-1/4 text-white/60 text-[10px] font-black tracking-[0.3em]">SCANNER CODE SKU / DEPOTEK</p>
+            <p className="absolute bottom-1/4 text-white/60 text-label font-black tracking-[0.3em]">SCANNER CODE SKU / DEPOTEK</p>
           </div>
         </div>
       )}
@@ -213,7 +213,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
         {mode === 'camera' ? (
           <button 
             onClick={() => setIsTorchOn(!isTorchOn)}
-            className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-colors border border-white/10", isTorchOn ? "bg-ocean-primary text-white" : "bg-white/10 text-white")}
+            className={cn("w-10 h-10 rounded-2xl flex items-center justify-center transition-colors border border-white/10", isTorchOn ? "bg-brand text-white" : "bg-white/10 text-white")}
           >
             <Flashlight size={20} />
           </button>
@@ -228,7 +228,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
           <div className="w-full text-center space-y-12">
             <div className="space-y-4">
               <h2 className="text-white text-lg font-black uppercase tracking-tight">"Ajouter 50 filets Buffalo..."</h2>
-              <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
+              <p className="text-white/40 text-label font-bold uppercase tracking-widest leading-relaxed">
                 Dites une commande naturelle en français.<br/>L'IA logistique s'occupe du reste.
               </p>
             </div>
@@ -241,7 +241,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
                     key={i}
                     animate={{ height: [20, h * 10, 20] }}
                     transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.05 }}
-                    className="w-1.5 bg-ocean-primary rounded-full"
+                    className="w-1.5 bg-brand rounded-full"
                   />
                 ))}
               </div>
@@ -257,7 +257,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
               onTouchEnd={() => setIsListening(false)}
               className={cn(
                 "w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-all border-4",
-                isListening ? "bg-red-500 scale-110 border-red-200" : "bg-white border-ocean-soft text-ocean-primary"
+                isListening ? "bg-red-500 scale-110 border-red-200" : "bg-white border-ocean-soft text-brand"
               )}
             >
               <Mic size={40} strokeWidth={isListening ? 3 : 2} />
@@ -271,7 +271,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
                   className="bg-white/10 backdrop-blur-xl border border-white/10 p-4 rounded-2xl text-white text-sm font-black italic"
                 >
                   "{voiceText}"
-                  <button className="ml-2 text-ocean-primary uppercase text-[10px] font-black underline">Modifier</button>
+                  <button className="ml-2 text-brand uppercase text-label font-black underline">Modifier</button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -289,7 +289,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
             </div>
             
             <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
-               <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Favoris Récents</h3>
+               <h3 className="text-white/40 text-label font-black uppercase tracking-widest mb-4">Favoris Récents</h3>
                <div className="space-y-3">
                  <RecentItem label="Transfert Buffalo SODIDA -> FOIRE" time="Il y a 2 min" />
                  <RecentItem label="Réception Maersk-440" time="Il y a 14 min" />
@@ -303,11 +303,11 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
           <div className="absolute bottom-12 w-full px-6 space-y-4">
              <button 
                 onClick={() => handleSimulateScan('BT-DEMO')}
-                className="w-full py-5 bg-white rounded-2xl text-ocean-dark font-black uppercase text-xs tracking-widest shadow-2xl active:scale-95 transition-all"
+                className="w-full py-5 bg-white rounded-2xl text-brand-dark font-black uppercase text-xs tracking-widest shadow-2xl active:scale-95 transition-all"
              >
                 Simuler Détection BT (Test)
              </button>
-             <button className="w-full py-4 text-white/40 font-black uppercase text-[10px] tracking-widest">Saisie manuelle</button>
+             <button className="w-full py-4 text-white/40 font-black uppercase text-label tracking-widest">Saisie manuelle</button>
           </div>
         )}
       </div>
@@ -325,35 +325,35 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
               className="w-full bg-white rounded-t-[40px] p-8 z-[210] shadow-2xl space-y-6 pb-12"
             >
-              <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto" />
+              <div className="w-12 h-1.5 bg-surface-page rounded-full mx-auto" />
               
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center text-3xl">
+                  <div className="w-16 h-16 bg-surface-subtle rounded-2xl flex items-center justify-center text-3xl">
                     {scannedProduct.product?.includes('BUF') ? '🥩' : '📦'}
                   </div>
                   <div>
-                    <h2 className="text-lg font-black text-ocean-dark uppercase tracking-tight">{scannedProduct.product}</h2>
-                    <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest">{scannedProduct.sku}</p>
+                    <h2 className="text-lg font-black text-brand-dark uppercase tracking-tight">{scannedProduct.product}</h2>
+                    <p className="text-label font-black text-text-muted uppercase tracking-widest">{scannedProduct.sku}</p>
                   </div>
                 </div>
-                <div className="bg-green-50 text-green-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                <div className="bg-green-50 text-green-500 px-3 py-1.5 rounded-full text-label font-black uppercase tracking-widest">
                   {scannedProduct.status}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 p-4 rounded-2xl">
-                  <span className="text-[9px] font-black text-gray-300 uppercase block mb-1">Localisation</span>
-                  <div className="flex items-center gap-2 text-ocean-dark font-black text-xs uppercase">
-                    <MapPin size={12} className="text-ocean-primary" />
+                <div className="bg-surface-subtle p-4 rounded-2xl">
+                  <span className="text-micro font-black text-text-muted uppercase block mb-1">Localisation</span>
+                  <div className="flex items-center gap-2 text-brand-dark font-black text-xs uppercase">
+                    <MapPin size={12} className="text-brand" />
                     {depots.find(d => d.id === (scannedProduct.depotId || scannedProduct.depot_id))?.name || 'Dépôt DEPOTEK'}
                   </div>
                 </div>
-                <div className="bg-gray-50 p-4 rounded-2xl">
-                  <span className="text-[9px] font-black text-gray-300 uppercase block mb-1">Inventaire Actuel</span>
-                  <div className="flex items-center gap-2 text-ocean-dark font-black text-xs uppercase">
-                    <Box size={12} className="text-ocean-primary" />
+                <div className="bg-surface-subtle p-4 rounded-2xl">
+                  <span className="text-micro font-black text-text-muted uppercase block mb-1">Inventaire Actuel</span>
+                  <div className="flex items-center gap-2 text-brand-dark font-black text-xs uppercase">
+                    <Box size={12} className="text-brand" />
                     {scannedProduct.quantity || scannedProduct.cartons} CTN
                   </div>
                 </div>
@@ -362,13 +362,13 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
               <div className="grid grid-cols-2 gap-4 pt-2">
                  <button 
                   onClick={() => handleConfirmMovement('entry', 10)}
-                  className="py-5 bg-green-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-green-500/20 active:scale-95 transition-all"
+                  className="py-5 bg-green-500 text-white rounded-2xl font-black uppercase text-label tracking-widest shadow-xl shadow-green-500/20 active:scale-95 transition-all"
                  >
                    Dépotage (+10)
                  </button>
                  <button 
                   onClick={() => handleConfirmMovement('exit', 10)}
-                  className="py-5 bg-orange-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all"
+                  className="py-5 bg-orange-500 text-white rounded-2xl font-black uppercase text-label tracking-widest shadow-xl shadow-orange-500/20 active:scale-95 transition-all"
                  >
                    Bon de Sortie (-10)
                  </button>
@@ -376,7 +376,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
 
               <button 
                 onClick={() => { setScannedProduct(null); onNavigate('StockDetail'); }} 
-                className="w-full py-5 border-2 border-ocean-primary text-ocean-primary rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2"
+                className="w-full py-5 border-2 border-brand text-brand rounded-2xl font-black uppercase text-label tracking-widest flex items-center justify-center gap-2"
               >
                 Fiche Complète <ArrowRight size={14} />
               </button>
@@ -395,36 +395,36 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
               className="w-full bg-white rounded-t-[40px] p-8 z-[210] shadow-2xl space-y-6 pb-12"
             >
-              <div className="w-12 h-1.5 bg-gray-100 rounded-full mx-auto" />
+              <div className="w-12 h-1.5 bg-surface-page rounded-full mx-auto" />
               
               <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 flex items-center gap-4">
-                 <div className="w-12 h-12 bg-ocean-primary text-white rounded-2xl flex items-center justify-center">
+                 <div className="w-12 h-12 bg-brand text-white rounded-2xl flex items-center justify-center">
                     <Truck size={24} />
                  </div>
                  <div>
-                    <h3 className="text-xs font-black text-ocean-dark uppercase">Bon de Transfert Détecté</h3>
-                    <p className="text-[10px] text-ocean-primary font-bold">{scannedTransfer.transferRef}</p>
+                    <h3 className="text-xs font-black text-brand-dark uppercase">Bon de Transfert Détecté</h3>
+                    <p className="text-label text-brand font-bold">{scannedTransfer.transferRef}</p>
                  </div>
               </div>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-black text-ocean-dark uppercase tracking-tight">
+                  <h2 className="text-xl font-black text-brand-dark uppercase tracking-tight">
                     {scannedTransfer.productName || scannedTransfer.product}
                   </h2>
-                  <span className="text-sm font-black text-ocean-primary">{scannedTransfer.quantity || scannedTransfer.cartons} CTN</span>
+                  <span className="text-sm font-black text-brand">{scannedTransfer.quantity || scannedTransfer.cartons} CTN</span>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
-                   <div className="p-3 bg-gray-50 rounded-xl">
-                      <span className="text-[8px] font-black text-gray-400 uppercase block mb-1">Dépôt Destinataire</span>
-                      <span className="text-[10px] font-black text-ocean-dark uppercase">
+                   <div className="p-3 bg-surface-subtle rounded-xl">
+                      <span className="text-micro font-black text-text-muted uppercase block mb-1">Dépôt Destinataire</span>
+                      <span className="text-label font-black text-brand-dark uppercase">
                         {depots.find(d => d.id === (scannedTransfer.depotId || scannedTransfer.depot_id))?.name || 'A confirmer'}
                       </span>
                    </div>
-                   <div className="p-3 bg-gray-50 rounded-xl">
-                      <span className="text-[8px] font-black text-gray-400 uppercase block mb-1">Statut Actuel</span>
-                      <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic">En Transit</span>
+                   <div className="p-3 bg-surface-subtle rounded-xl">
+                      <span className="text-micro font-black text-text-muted uppercase block mb-1">Statut Actuel</span>
+                      <span className="text-label font-black text-blue-500 uppercase tracking-widest italic">En Transit</span>
                    </div>
                 </div>
               </div>
@@ -439,7 +439,7 @@ export const ScanScreen = ({ onBack, onNavigate }: { onBack: () => void, onNavig
 
               <button 
                 onClick={() => setScannedTransfer(null)} 
-                className="w-full py-4 text-gray-300 font-black uppercase text-[10px] tracking-widest"
+                className="w-full py-4 text-text-muted font-black uppercase text-label tracking-widest"
               >
                 Annuler
               </button>
@@ -481,21 +481,21 @@ const TabButton = ({ active, icon, label, onClick }: any) => (
     onClick={onClick}
     className={cn(
       "flex-1 flex items-center justify-center gap-2 py-3 rounded-full transition-all",
-      active ? "bg-white text-ocean-dark shadow-xl" : "text-white/40"
+      active ? "bg-white text-brand-dark shadow-xl" : "text-white/40"
     )}
   >
     {icon}
-    <span className="text-[9px] font-black uppercase tracking-widest">{active ? label : ''}</span>
+    <span className="text-micro font-black uppercase tracking-widest">{active ? label : ''}</span>
   </button>
 );
 
 const QuickCard = ({ icon, title, qty, depot }: any) => (
   <button className="bg-white/10 backdrop-blur-md border border-white/10 p-4 rounded-3xl flex flex-col items-center gap-2 active:scale-95 transition-all text-center">
     <span className="text-2xl">{icon}</span>
-    <h4 className="text-white text-[10px] font-black uppercase">{title}</h4>
+    <h4 className="text-white text-label font-black uppercase">{title}</h4>
     <div className="flex flex-col">
-       <span className="text-ocean-primary text-xs font-black">{qty} CTN</span>
-       <span className="text-white/20 text-[8px] font-bold uppercase">{depot}</span>
+       <span className="text-brand text-xs font-black">{qty} CTN</span>
+       <span className="text-white/20 text-micro font-bold uppercase">{depot}</span>
     </div>
   </button>
 );
@@ -504,8 +504,8 @@ const RecentItem = ({ label, time }: any) => (
   <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
     <div className="flex items-center gap-3">
        <Clock size={12} className="text-white/20" />
-       <span className="text-white/60 text-[10px] font-bold">{label}</span>
+       <span className="text-white/60 text-label font-bold">{label}</span>
     </div>
-    <span className="text-white/20 text-[8px] uppercase">{time}</span>
+    <span className="text-white/20 text-micro uppercase">{time}</span>
   </div>
 );

@@ -22,11 +22,11 @@ import { doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { useToast } from '../context/ToastContext';
 
 import { maintenanceService } from '../services/maintenanceService';
-import { AlertTriangle, Trash2, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, Trash2, RefreshCcw, Terminal } from 'lucide-react';
 
 import { requestNotificationPermission, initMessageListener } from '../services/PushNotificationService';
 
-export const Settings = ({ onBack }: { onBack: () => void }) => {
+export const Settings = ({ onBack, onNavigate }: { onBack: () => void; onNavigate?: (screen: string) => void }) => {
   const { showToast } = useToast();
   const [config, setConfig] = useState({
     pushEnabled: true,
@@ -117,7 +117,7 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
   };
 
   return (
-    <div className="h-screen bg-ocean-soft max-w-[480px] mx-auto relative flex flex-col font-sans overflow-y-auto no-scrollbar scroll-smooth pb-40">
+    <div className="h-screen bg-surface-subtle max-w-[480px] mx-auto relative flex flex-col font-sans overflow-y-auto no-scrollbar scroll-smooth pb-40">
       {/* 🚀 PREMIUM COMMANDER HEADER */}
       <header className="flex-none p-6 pb-16 bg-gradient-to-br from-ocean-dark via-ocean-primary to-[#1a237e] text-white relative overflow-hidden">
         {/* Modern abstract patterns */}
@@ -142,7 +142,7 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
 
         <div className="flex flex-col items-center text-center relative z-10">
            <div className="relative mb-4">
-              <div className="w-24 h-24 rounded-[2.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 bg-ocean-dark">
+              <div className="w-24 h-24 rounded-[2.5rem] border-4 border-white/20 overflow-hidden shadow-2xl relative z-10 bg-brand-dark">
                  {auth.currentUser?.photoURL ? (
                     <img src={auth.currentUser.photoURL} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                  ) : (
@@ -151,16 +151,16 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
                     </div>
                  )}
               </div>
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-success rounded-xl border-4 border-ocean-primary flex items-center justify-center z-20 shadow-lg">
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-status-success rounded-xl border-4 border-brand flex items-center justify-center z-20 shadow-lg">
                  <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
               </div>
            </div>
            
            <h2 className="text-2xl font-black tracking-tighter mb-1">{auth.currentUser?.displayName || 'Agent Inconnu'}</h2>
-           <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.2em] mb-4">{config.userEmail}</p>
+           <p className="text-label font-bold text-white/50 uppercase tracking-[0.2em] mb-4">{config.userEmail}</p>
            
-           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/5 backdrop-blur-md rounded-full text-[9px] font-black uppercase tracking-widest border border-white/10 text-white/80 shadow-inner">
-              <Shield size={12} className="text-accent-gold" /> 
+           <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/5 backdrop-blur-md rounded-full text-micro font-black uppercase tracking-widest border border-white/10 text-white/80 shadow-inner">
+              <Shield size={12} className="text-status-warning" /> 
               <span>Authentification Grade : Enterprise</span>
            </div>
         </div>
@@ -171,38 +171,38 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
         {/* Section Communications - iOS Style Card */}
         <section className="bg-white/80 backdrop-blur-2xl rounded-[2.5rem] p-6 shadow-2xl shadow-ocean-dark/5 border border-white space-y-5">
            <div className="flex items-center justify-between px-1">
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-               <Bell size={14} className="text-ocean-primary/40" /> Communication
+             <h3 className="text-label font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2">
+               <Bell size={14} className="text-brand/40" /> Communication
              </h3>
-             <span className="text-[8px] font-black text-white bg-success px-2 py-0.5 rounded-full uppercase tracking-tighter">Live</span>
+             <span className="text-micro font-black text-white bg-status-success px-2 py-0.5 rounded-full uppercase tracking-tighter">Live</span>
            </div>
            
            <div className="space-y-1">
-             <ToggleRow icon={<Smartphone className="text-ocean-primary" />} label="Logs Push Mobile" active={config.pushEnabled} onToggle={() => handleToggle('pushEnabled')} />
-             <div className="h-px bg-slate-50 mx-4" />
-             <ToggleRow icon={<Mail className="text-ocean-primary" />} label="Monitoring Email" active={config.emailEnabled} onToggle={() => handleToggle('emailEnabled')} />
-             <div className="h-px bg-slate-50 mx-4" />
-             <ToggleRow icon={<MessageSquare className="text-ocean-primary" />} label="Passerelle SMS (+221)" active={config.smsEnabled} onToggle={() => handleToggle('smsEnabled')} />
+             <ToggleRow icon={<Smartphone className="text-brand" />} label="Logs Push Mobile" active={config.pushEnabled} onToggle={() => handleToggle('pushEnabled')} />
+             <div className="h-px bg-surface-subtle mx-4" />
+             <ToggleRow icon={<Mail className="text-brand" />} label="Monitoring Email" active={config.emailEnabled} onToggle={() => handleToggle('emailEnabled')} />
+             <div className="h-px bg-surface-subtle mx-4" />
+             <ToggleRow icon={<MessageSquare className="text-brand" />} label="Passerelle SMS (+221)" active={config.smsEnabled} onToggle={() => handleToggle('smsEnabled')} />
            </div>
         </section>
 
         {/* Section Paramètres Logistiques - Hardware Styled */}
         <section className="bg-white/80 backdrop-blur-2xl rounded-[2.5rem] p-6 shadow-2xl shadow-ocean-dark/5 border border-white space-y-6">
            <div className="flex items-center justify-between px-1">
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-               <Target size={14} className="text-ocean-primary/40" /> Seuils Critique
+             <h3 className="text-label font-black uppercase tracking-[0.2em] text-text-muted flex items-center gap-2">
+               <Target size={14} className="text-brand/40" /> Seuils Critique
              </h3>
              <SettingsIcon size={14} className="text-slate-100 animate-spin-slow" />
            </div>
 
            <div className="space-y-6">
-             <div className="space-y-3 bg-slate-50/50 p-4 rounded-3xl border border-slate-100/50 shadow-inner">
+             <div className="space-y-3 bg-surface-subtle/50 p-4 rounded-3xl border border-border-default/50 shadow-inner">
                <div className="flex justify-between items-center px-1">
                  <div className="flex flex-col">
-                   <label className="text-[10px] font-black text-ocean-dark uppercase tracking-widest mb-0.5">Stock Bas</label>
-                   <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter leading-none">Alerte Orange</span>
+                   <label className="text-label font-black text-brand-dark uppercase tracking-widest mb-0.5">Stock Bas</label>
+                   <span className="text-micro font-bold text-text-muted uppercase tracking-tighter leading-none">Alerte Orange</span>
                  </div>
-                 <div className="px-3 py-1 bg-white rounded-xl border border-slate-100 shadow-sm text-[12px] font-black text-ocean-primary">
+                 <div className="px-3 py-1 bg-white rounded-xl border border-border-default shadow-sm text-caption font-black text-brand">
                     {config.lowStockThreshold}%
                  </div>
                </div>
@@ -214,13 +214,13 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
                />
              </div>
 
-             <div className="space-y-3 bg-slate-50/50 p-4 rounded-3xl border border-slate-100/50 shadow-inner">
+             <div className="space-y-3 bg-surface-subtle/50 p-4 rounded-3xl border border-border-default/50 shadow-inner">
                <div className="flex justify-between items-center px-1">
                  <div className="flex flex-col">
-                   <label className="text-[10px] font-black text-ocean-dark uppercase tracking-widest mb-0.5">FEFO Delta</label>
-                   <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter leading-none">Anticipation d'expiration</span>
+                   <label className="text-label font-black text-brand-dark uppercase tracking-widest mb-0.5">FEFO Delta</label>
+                   <span className="text-micro font-bold text-text-muted uppercase tracking-tighter leading-none">Anticipation d'expiration</span>
                  </div>
-                 <div className="px-3 py-1 bg-white rounded-xl border border-slate-100 shadow-sm text-[12px] font-black text-ocean-primary">
+                 <div className="px-3 py-1 bg-white rounded-xl border border-border-default shadow-sm text-caption font-black text-brand">
                     {config.fefoAlertDays}j
                  </div>
                </div>
@@ -233,16 +233,16 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
              </div>
 
              <div className="pt-2">
-                <label className="text-[9px] font-black text-ocean-dark uppercase tracking-[0.2em] px-2 mb-2 block">Numéro de passerelle SMS (SN)</label>
-                <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-3xl border border-slate-100 shadow-inner focus-within:bg-white focus-within:ring-4 focus-within:ring-ocean-primary/5 transition-all">
-                   <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center text-ocean-primary shadow-sm">
+                <label className="text-micro font-black text-brand-dark uppercase tracking-[0.2em] px-2 mb-2 block">Numéro de passerelle SMS (SN)</label>
+                <div className="flex items-center gap-3 bg-surface-subtle p-4 rounded-3xl border border-border-default shadow-inner focus-within:bg-white focus-within:ring-4 focus-within:ring-ocean-primary/5 transition-all">
+                   <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center text-brand shadow-sm">
                       <Globe size={16} />
                    </div>
                    <input 
                      type="tel"
                      value={config.adminPhone}
                      onChange={(e) => handleInputChange('adminPhone', e.target.value)}
-                     className="bg-transparent border-none outline-none text-sm font-black text-ocean-dark w-full placeholder:text-slate-200"
+                     className="bg-transparent border-none outline-none text-sm font-black text-brand-dark w-full placeholder:text-slate-200"
                      placeholder="+221 ..."
                    />
                 </div>
@@ -252,29 +252,43 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
            <button 
              onClick={saveConfig}
              disabled={saving}
-             className="w-full py-5 bg-ocean-primary text-white rounded-[2rem] font-black uppercase text-[11px] tracking-[0.2em] shadow-2xl shadow-ocean-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+             className="w-full py-5 bg-brand text-white rounded-[2rem] font-black uppercase text-caption tracking-[0.2em] shadow-2xl shadow-brand/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
            >
               {saving ? (
                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                 <CheckCircle2 size={18} className="text-accent-gold" />
+                 <CheckCircle2 size={18} className="text-status-warning" />
               )}
               <span>{saving ? 'Synchronisation...' : 'Appliquer les Paramètres'}</span>
            </button>
+        </section>
+
+        {/* Section Système */}
+        <section className="bg-zinc-900 rounded-[2.5rem] p-6 border border-zinc-800 space-y-4">
+          <div className="flex items-center gap-2 px-2">
+            <Terminal size={14} className="text-zinc-400" />
+            <h3 className="text-label font-black uppercase tracking-[0.2em] text-zinc-400">Système</h3>
+          </div>
+          <button
+            onClick={() => onNavigate?.('IntegrityConsole')}
+            className="w-full py-4 bg-zinc-800 text-zinc-200 rounded-2xl font-black uppercase text-label tracking-widest border border-zinc-700 shadow-sm hover:bg-zinc-700 transition-all flex items-center justify-center gap-2"
+          >
+            <Shield size={14} className="text-emerald-400" /> System Integrity Console
+          </button>
         </section>
 
         {/* Section Danger Zone */}
         <section className="bg-red-50/50 backdrop-blur-md rounded-[2.5rem] p-6 border border-red-100/50 space-y-4">
           <div className="flex items-center gap-2 px-2">
              <AlertTriangle size={14} className="text-red-400" />
-             <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400">Administration Démo</h3>
+             <h3 className="text-label font-black uppercase tracking-[0.2em] text-red-400">Administration Démo</h3>
           </div>
-          <p className="text-[9px] text-slate-400 font-medium px-2 leading-relaxed uppercase tracking-tight">
+          <p className="text-micro text-text-muted font-medium px-2 leading-relaxed uppercase tracking-tight">
             Suppression massive pour remise à zéro. Ne pas utiliser en production PAD.
           </p>
           <button 
             onClick={() => setIsResetConfirmOpen(true)}
-            className="w-full py-4 bg-white text-red-500 rounded-2xl font-black uppercase text-[10px] tracking-widest border border-red-100 shadow-sm hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 bg-white text-red-500 rounded-2xl font-black uppercase text-label tracking-widest border border-red-100 shadow-sm hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-2"
           >
              <Trash2 size={12} /> Réinitialiser le système
           </button>
@@ -283,56 +297,56 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
         {/* Logout - Floating Style */}
         <button 
           onClick={handleLogout}
-          className="w-full py-6 flex items-center justify-between px-8 bg-white rounded-[2.5rem] border border-slate-100 shadow-xl shadow-ocean-dark/5 group active:scale-[0.98] transition-all"
+          className="w-full py-6 flex items-center justify-between px-8 bg-white rounded-[2.5rem] border border-border-default shadow-xl shadow-ocean-dark/5 group active:scale-[0.98] transition-all"
         >
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center shadow-inner group-hover:bg-red-500 group-hover:text-white transition-colors">
               <LogOut size={22} />
             </div>
             <div className="text-left">
-               <span className="text-[13px] font-black uppercase text-ocean-dark tracking-tight block">Fermer la session</span>
-               <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">Identité : {config.userEmail.split('@')[0]}</span>
+               <span className="text-body font-black uppercase text-brand-dark tracking-tight block">Fermer la session</span>
+               <span className="text-micro font-bold text-text-muted uppercase tracking-widest">Identité : {config.userEmail.split('@')[0]}</span>
             </div>
           </div>
-          <ChevronLeft className="rotate-180 text-slate-200 group-hover:text-ocean-primary transition-colors" />
+          <ChevronLeft className="rotate-180 text-slate-200 group-hover:text-brand transition-colors" />
         </button>
 
         <div className="flex flex-col items-center gap-2 pt-4 pb-12 opacity-30">
            <div className="flex items-center gap-3">
-              <div className="w-1.5 h-1.5 bg-success rounded-full" />
-              <p className="text-[8px] font-black text-ocean-dark uppercase tracking-[0.4em]">DEPOTEK V2.0.4 CORE</p>
+              <div className="w-1.5 h-1.5 bg-status-success rounded-full" />
+              <p className="text-micro font-black text-brand-dark uppercase tracking-[0.4em]">DEPOTEK V2.0.4 CORE</p>
            </div>
-           <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">Distribué par Dakar Cold Link Logistics</p>
+           <p className="text-micro font-bold text-text-muted uppercase tracking-widest whitespace-nowrap">Distribué par Dakar Cold Link Logistics</p>
         </div>
       </div>
 
       {/* Reset Confirmation Modal */}
       {isResetConfirmOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsResetConfirmOpen(false)} className="fixed inset-0 bg-[#0A2540]/80 backdrop-blur-sm" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsResetConfirmOpen(false)} className="fixed inset-0 bg-brand-ink/80 backdrop-blur-sm" />
           <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-[340px] bg-white rounded-[32px] p-8 z-[310] shadow-2xl space-y-6">
             <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto">
               <AlertTriangle size={32} />
             </div>
             <div className="text-center">
-              <h3 className="text-lg font-black text-[#0A2540] tracking-tight">Réinitialisation Totale</h3>
+              <h3 className="text-lg font-black text-brand-ink tracking-tight">Réinitialisation Totale</h3>
               <p className="text-xs text-red-400 font-bold bg-red-50 p-3 rounded-xl mt-3 uppercase">Attention: Cette action effacera TOUTES les données (Inventaire, Dépôts, Logs, Tracking).</p>
-              <p className="text-xs text-gray-400 mt-4 italic">Tapez <span className="font-black text-red-500">RESET</span> pour confirmer.</p>
+              <p className="text-xs text-text-muted mt-4 italic">Tapez <span className="font-black text-red-500">RESET</span> pour confirmer.</p>
             </div>
             <input 
               value={resetInput}
               onChange={e => setResetInput(e.target.value.toUpperCase())}
               placeholder="RESET"
-              className="w-full bg-gray-50 border border-red-100 rounded-2xl p-4 text-center font-black outline-none focus:border-red-500 uppercase"
+              className="w-full bg-surface-subtle border border-red-100 rounded-2xl p-4 text-center font-black outline-none focus:border-red-500 uppercase"
             />
             <div className="flex gap-4">
-              <button onClick={() => setIsResetConfirmOpen(false)} className="flex-1 py-4 text-gray-400 font-black uppercase text-[10px]">Annuler</button>
+              <button onClick={() => setIsResetConfirmOpen(false)} className="flex-1 py-4 text-text-muted font-black uppercase text-label">Annuler</button>
               <button 
                 onClick={handleResetData}
                 disabled={resetInput !== 'RESET' || resetting}
                 className={cn(
-                  "flex-1 py-4 rounded-2xl font-black uppercase text-[10px] transition-all flex items-center justify-center gap-2",
-                  resetInput === 'RESET' ? "bg-red-500 text-white shadow-lg shadow-red-500/20" : "bg-gray-100 text-gray-300"
+                  "flex-1 py-4 rounded-2xl font-black uppercase text-label transition-all flex items-center justify-center gap-2",
+                  resetInput === 'RESET' ? "bg-red-500 text-white shadow-lg shadow-red-500/20" : "bg-surface-page text-text-muted"
                 )}
               >
                 {resetting ? <RefreshCcw size={14} className="animate-spin" /> : 'Confirmer'}
@@ -348,10 +362,10 @@ export const Settings = ({ onBack }: { onBack: () => void }) => {
 const ToggleRow = ({ icon, label, active, onToggle }: any) => (
   <div className="flex items-center justify-between py-1 px-2">
     <div className="flex items-center gap-3">
-       <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center">
+       <div className="w-10 h-10 bg-surface-subtle rounded-xl flex items-center justify-center">
           {icon}
        </div>
-       <span className="text-xs font-black text-ocean-dark uppercase tracking-tight">{label}</span>
+       <span className="text-xs font-black text-brand-dark uppercase tracking-tight">{label}</span>
     </div>
     <button 
       onClick={onToggle}

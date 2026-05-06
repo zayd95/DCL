@@ -42,28 +42,28 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
               className={cn(
                 "pointer-events-auto flex items-center gap-3 p-4 rounded-2xl shadow-2xl border backdrop-blur-md",
-                toast.type === 'success' ? "bg-white border-green-100 text-green-600" :
-                toast.type === 'error' ? "bg-white border-red-100 text-red-600" :
-                toast.type === 'warning' ? "bg-white border-orange-100 text-orange-600" :
-                "bg-white border-blue-100 text-blue-600"
+                toast.type === 'success' ? "bg-surface-card border-status-success-bg text-status-success" :
+                toast.type === 'error'   ? "bg-surface-card border-status-danger-bg  text-status-danger"  :
+                toast.type === 'warning' ? "bg-surface-card border-status-warning-bg text-status-warning" :
+                                           "bg-surface-card border-status-info-bg    text-status-info"
               )}
             >
               <div className={cn(
-                 "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
-                 toast.type === 'success' ? "bg-green-50" :
-                 toast.type === 'error' ? "bg-red-50" :
-                 toast.type === 'warning' ? "bg-orange-50" :
-                 "bg-blue-50"
+                "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                toast.type === 'success' ? "bg-status-success-bg" :
+                toast.type === 'error'   ? "bg-status-danger-bg"  :
+                toast.type === 'warning' ? "bg-status-warning-bg" :
+                                           "bg-status-info-bg"
               )}>
                 {toast.type === 'success' && <CheckCircle size={18} />}
-                {toast.type === 'error' && <AlertCircle size={18} />}
+                {toast.type === 'error'   && <AlertCircle size={18} />}
                 {toast.type === 'warning' && <AlertCircle size={18} />}
-                {toast.type === 'info' && <Info size={18} />}
+                {toast.type === 'info'    && <Info size={18} />}
               </div>
-              <p className="text-[11px] font-black uppercase tracking-widest flex-1">{toast.message}</p>
-              <button 
+              <p className="text-caption font-black uppercase tracking-widest flex-1">{toast.message}</p>
+              <button
                 onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
-                className="p-1 hover:bg-gray-50 rounded-lg transition-colors"
+                className="p-1 hover:bg-surface-subtle rounded-lg transition-colors"
               >
                 <X size={14} />
               </button>
