@@ -8,9 +8,10 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import {
-  INTEGRITY_CHECKS, SAMPLE_LIMIT,
-  type CheckStatus, type CheckResult,
+  INTEGRITY_CHECKS, SAMPLE_LIMIT, generateMigrationReport,
+  type CheckStatus, type CheckResult, type MigrationReport,
 } from '../services/integrityService';
+import { FileCheck } from 'lucide-react';
 
 // ─── Status display config ────────────────────────────────────────────────────
 
@@ -35,11 +36,13 @@ interface Props {
 }
 
 export const SystemIntegrityConsole = ({ onBack }: Props) => {
-  const [results, setResults]     = useState<CheckResult[]>([]);
-  const [running, setRunning]     = useState(false);
-  const [expanded, setExpanded]   = useState<Set<string>>(new Set());
-  const [repairing, setRepairing] = useState<string | null>(null);
-  const [lastRun, setLastRun]     = useState<Date | null>(null);
+  const [results, setResults]         = useState<CheckResult[]>([]);
+  const [running, setRunning]         = useState(false);
+  const [expanded, setExpanded]       = useState<Set<string>>(new Set());
+  const [repairing, setRepairing]     = useState<string | null>(null);
+  const [lastRun, setLastRun]         = useState<Date | null>(null);
+  const [migReport, setMigReport]     = useState<MigrationReport | null>(null);
+  const [migRunning, setMigRunning]   = useState(false);
 
   const runChecks = useCallback(async (ids?: string[]) => {
     setRunning(true);
@@ -113,6 +116,25 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
     a.download = `depotek-integrity-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const runMigrationValidation = async () => {
+    setMigRunning(true);
+    setMigReport(null);
+    try {
+      const report = await generateMigrationReport();
+      setMigReport(report);
+      // Also export automatically
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `depotek-migration-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setMigRunning(false);
+    }
   };
 
   const toggleExpand = (id: string) =>
@@ -362,15 +384,76 @@ export const SystemIntegrityConsole = ({ onBack }: Props) => {
         })}
       </div>
 
+      {/* ── Migration Validation Panel ─────────────────────────────────────── */}
+      <AnimatePresence>
+        {migReport && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="flex-shrink-0 border-t border-zinc-800 overflow-hidden"
+          >
+            <div className={cn(
+              "px-5 py-4 space-y-2",
+              migReport.readyToActivate ? "bg-emerald-950/40" : "bg-red-950/40",
+            )}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                  Rapport de Migration Phase 1
+                </span>
+                <span className={cn(
+                  "text-[10px] font-black px-2 py-0.5 rounded-full",
+                  migReport.readyToActivate ? "bg-emerald-800 text-emerald-300" : "bg-red-900 text-red-300",
+                )}>
+                  {migReport.readyToActivate ? '✓ ACTIVABLE' : '✗ BLOQUÉ'}
+                </span>
+              </div>
+              <p className="text-zinc-400 text-[10px] leading-relaxed">{migReport.recommendation}</p>
+              {migReport.activationBlockers.length > 0 && (
+                <ul className="space-y-0.5">
+                  {migReport.activationBlockers.map((b, i) => (
+                    <li key={i} className="text-red-400 text-[10px] font-mono">✗ {b}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {[
+                  { label: 'Passés',  val: migReport.summary.passed,   color: 'text-emerald-400' },
+                  { label: 'Alertes', val: migReport.summary.warnings,  color: 'text-amber-400'   },
+                  { label: 'Échecs',  val: migReport.summary.failures,  color: 'text-red-400'     },
+                ].map(s => (
+                  <div key={s.label} className="text-center">
+                    <p className={cn("text-sm font-bold", s.color)}>{s.val}</p>
+                    <p className="text-zinc-600 text-[9px] uppercase tracking-widest">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 border-t border-zinc-800 px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-zinc-600">
-          <Database size={12} />
-          <span className="text-[10px] font-mono">
-            Firestore · échantillon max {SAMPLE_LIMIT} docs / collection
+      <div className="flex-shrink-0 border-t border-zinc-800 px-5 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-zinc-600 min-w-0">
+          <Database size={12} className="flex-shrink-0" />
+          <span className="text-[10px] font-mono truncate">
+            Firestore · max {SAMPLE_LIMIT} docs / collection
           </span>
         </div>
-        <span className="text-zinc-700 text-[10px] font-mono">Phase 0</span>
+        <button
+          onClick={runMigrationValidation}
+          disabled={migRunning}
+          className={cn(
+            "flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors",
+            migRunning
+              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              : "bg-zinc-700 hover:bg-zinc-600 text-zinc-200"
+          )}
+        >
+          {migRunning
+            ? <><RefreshCw size={10} className="animate-spin" /> Validation...</>
+            : <><FileCheck size={10} /> Valider Migration</>
+          }
+        </button>
       </div>
     </div>
   );

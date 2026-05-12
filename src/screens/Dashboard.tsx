@@ -36,6 +36,8 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, onSnapshot, collectionGroup, where, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { Depot, StockItem } from '../types';
 import { useDepots, useStock } from './StockHome';
+import { useStockViewStats } from '../hooks/useStockView';
+import { featureFlags } from '../lib/featureFlags';
 
 interface LogEntry {
   id: string;
@@ -59,6 +61,7 @@ interface TrackingDoc {
 export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void }) => {
   const { data: depots } = useDepots();
   const { lots: allStock } = useStock('all');
+  const stockViewStats = useStockViewStats('all');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [tracking, setTracking] = useState<TrackingDoc[]>([]);
   const [todayVolume, setTodayVolume] = useState(0);
@@ -192,28 +195,40 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
   }, [allStock, depots, tracking]);
 
   const stats = useMemo(() => {
-    const totalV = allStock.reduce((acc, s) => acc + (Number(s.cost_basis) || 0), 0);
-    
-    // Average saturation
     const totalCap = depots.reduce((acc, d) => acc + (Number(d.capacity_cartons) || 0), 0);
-    const totalL = depots.reduce((acc, d) => acc + (Number(d.current_load) || 0), 0);
-    const avgSat = totalCap > 0 ? (totalL / totalCap) * 100 : 0;
+    const totalL   = depots.reduce((acc, d) => acc + (Number(d.current_load) || 0), 0);
+    const avgSat   = totalCap > 0 ? (totalL / totalCap) * 100 : 0;
 
-    // FEFO Status — count items at CRITICAL/EXPIRED or expiring within a month
+    // Phase 1: read KPIs from /stockView when flag is on and docs exist
+    if (featureFlags.USE_STOCKVIEW_READS && !stockViewStats.isEmpty) {
+      return {
+        totalValue:        stockViewStats.totalValueXof,
+        averageSaturation: avgSat,
+        fefoHealth:        stockViewStats.fefoHealth,
+        urgentCount:       stockViewStats.urgentCount,
+        source:            'stockview' as const,
+      };
+    }
+
+    // Legacy: derive KPIs from normalised stock items
+    const totalV     = allStock.reduce((acc, s) => acc + (Number(s.cost_basis) || 0), 0);
     const urgentCount = allStock.filter(s => {
       const { daysToExpiry, healthStatus } = computeStockState(s);
       if (daysToExpiry === null) return healthStatus === 'CRITICAL' || healthStatus === 'EXPIRED';
       return daysToExpiry < 30;
     }).length;
-    const fefoHealth = allStock.length > 0 ? 100 - (Math.min((urgentCount / allStock.length) * 100, 100)) : 100;
+    const fefoHealth = allStock.length > 0
+      ? 100 - Math.min((urgentCount / allStock.length) * 100, 100)
+      : 100;
 
     return {
-      totalValue: totalV,
+      totalValue:        totalV,
       averageSaturation: avgSat,
       fefoHealth,
-      urgentCount
+      urgentCount,
+      source:            'legacy' as const,
     };
-  }, [allStock, depots]);
+  }, [allStock, depots, stockViewStats]);
 
   return (
     <div className="h-full bg-surface-page max-w-[480px] mx-auto font-sans overflow-hidden relative flex flex-col text-brand-dark">
@@ -230,6 +245,13 @@ export const Dashboard = ({ onNavigate }: { onNavigate: (screen: string) => void
                 <p className="text-micro font-black text-white/40 uppercase tracking-[0.2em] mt-1">DEPOTEK HUB</p>
               </div>
            </div>
+           {/* Data-source indicator — visible only when StockView reads are active */}
+           {stats.source === 'stockview' && (
+             <div className="flex items-center gap-1.5 bg-emerald-900/70 border border-emerald-600/50 px-2.5 py-1 rounded-full">
+               <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+               <span className="text-[8px] font-black text-emerald-300 uppercase tracking-widest">StockView</span>
+             </div>
+           )}
         </div>
       </header>
 
