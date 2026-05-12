@@ -271,6 +271,224 @@ async function checkExpiredActiveLots(): Promise<CheckRunResult> {
   };
 }
 
+// ─── Migration validation checks ─────────────────────────────────────────────
+
+export interface MigrationReport {
+  generatedAt: string;
+  schemaVersion: 'phase-0';
+  readyToActivate: boolean;
+  summary: {
+    totalChecks: number;
+    passed: number;
+    warnings: number;
+    failures: number;
+  };
+  checks: Array<{
+    id: string;
+    name: string;
+    status: CheckStatus;
+    issueCount: number;
+    durationMs?: number;
+  }>;
+  activationBlockers: string[];
+  recommendation: string;
+}
+
+async function checkStockViewCoverage(): Promise<CheckRunResult> {
+  const t0 = Date.now();
+  const snap = await getDocs(query(collectionGroup(db, 'stock'), limit(SAMPLE_LIMIT)));
+  const issues: Issue[] = [];
+
+  // Build unique (depotId, sku) pairs that have positive quantity
+  const pairs = new Map<string, { depotId: string; sku: string; qty: number }>();
+  let noSkuCount = 0;
+
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const depotId: string = data.depotId || data.depot_id || '';
+    const sku: string = data.sku || '';
+    const qty: number = data.quantity ?? data.cartons ?? data.units ?? 0;
+
+    if (!sku) { noSkuCount++; return; }
+    if (!depotId) return;
+
+    const key = stockViewId(depotId, sku);
+    const prev = pairs.get(key);
+    pairs.set(key, { depotId, sku, qty: (prev?.qty ?? 0) + qty });
+  });
+
+  // For each active pair, verify a /stockView document exists
+  await Promise.all([...pairs.entries()].map(async ([svId, { depotId, sku, qty }]) => {
+    if (qty <= 0) return;
+    const svSnap = await getDocs(
+      query(collection(db, 'stockView'), where('depotId', '==', depotId), where('sku', '==', sku), limit(1)),
+    );
+    if (svSnap.empty) {
+      issues.push({
+        path: `stockView/${svId}`,
+        detail: `No /stockView doc for depot=${depotId} sku=${sku} (legacy qty=${qty})`,
+        severity: 'fail',
+      });
+    }
+  }));
+
+  if (noSkuCount > 0) {
+    issues.push({
+      path: 'legacy/stock',
+      detail: `${noSkuCount} stock docs have no sku — cannot be projected to stockView`,
+      severity: 'warn',
+    });
+  }
+
+  return {
+    status: issues.length === 0 ? 'pass' : issues.some(i => i.severity === 'fail') ? 'fail' : 'warn',
+    totalChecked: pairs.size,
+    issueCount: issues.length,
+    issues,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function compareSchemas(): Promise<CheckRunResult> {
+  const t0 = Date.now();
+  const viewsSnap = await getDocs(query(collection(db, 'stockView'), limit(50)));
+  const issues: Issue[] = [];
+
+  await Promise.all(viewsSnap.docs.map(async viewDoc => {
+    const sv = viewDoc.data() as { sku: string; depotId: string; totalQuantity: number; totalValueXof: number };
+    const { sku, depotId, totalQuantity: svQty, totalValueXof: svValue } = sv;
+    if (!sku || !depotId) return;
+
+    // Sum legacy stock for same (depot, sku)
+    const legacySnap = await getDocs(
+      query(collectionGroup(db, 'stock'), where('depotId', '==', depotId), where('sku', '==', sku)),
+    );
+    const legacyQty   = legacySnap.docs.reduce((s, d) => s + (d.data().quantity ?? d.data().cartons ?? 0), 0);
+    const legacyValue = legacySnap.docs.reduce((s, d) => s + (d.data().costBasis ?? d.data().cost_basis ?? 0), 0);
+
+    const qtyDrift   = Math.abs((svQty ?? 0) - legacyQty);
+    const valueDrift = Math.abs((svValue ?? 0) - legacyValue);
+
+    if (qtyDrift > 0) {
+      issues.push({
+        path: viewDoc.ref.path,
+        detail: `Qty parity: stockView=${svQty} legacy=${legacyQty} drift=${qtyDrift}`,
+        severity: qtyDrift > 5 ? 'fail' : 'warn',
+      });
+    }
+    if (valueDrift > 500) {
+      issues.push({
+        path: viewDoc.ref.path,
+        detail: `Value XOF parity: stockView=${svValue} legacy=${legacyValue} drift=${valueDrift}`,
+        severity: 'warn',
+      });
+    }
+  }));
+
+  return {
+    status: issues.length === 0 ? 'pass' : issues.some(i => i.severity === 'fail') ? 'fail' : 'warn',
+    totalChecked: viewsSnap.size,
+    issueCount: issues.length,
+    issues,
+    durationMs: Date.now() - t0,
+  };
+}
+
+async function checkMovementCompleteness(): Promise<CheckRunResult> {
+  const t0 = Date.now();
+  const snap = await getDocs(
+    query(collection(db, 'movements'), orderBy('createdAt', 'desc'), limit(SAMPLE_LIMIT)),
+  );
+  const issues: Issue[] = [];
+  snap.docs.forEach(d => {
+    const data = d.data();
+    const missing: string[] = [];
+    if (!data.type)                 missing.push('type');
+    if (!data.sku)                  missing.push('sku');
+    if (!data.lotId)                missing.push('lotId');
+    if (data.quantity === undefined) missing.push('quantity');
+    if (!data.depotId)              missing.push('depotId');
+    if (missing.length > 0) {
+      issues.push({
+        path: `movements/${d.id}`,
+        detail: `Missing required fields: ${missing.join(', ')}`,
+        severity: missing.includes('quantity') || missing.includes('type') ? 'fail' : 'warn',
+      });
+    }
+  });
+  return {
+    status: issues.length === 0 ? 'pass' : issues.some(i => i.severity === 'fail') ? 'fail' : 'warn',
+    totalChecked: snap.size,
+    issueCount: issues.length,
+    issues,
+    durationMs: Date.now() - t0,
+  };
+}
+
+// ─── Migration report orchestrator ───────────────────────────────────────────
+
+const MIGRATION_ONLY_CHECKS: IntegrityCheckDef[] = [
+  {
+    id: 'stockview_coverage',
+    name: 'Couverture StockView',
+    description: 'Vérifie que chaque (dépôt, SKU) actif a un document /stockView correspondant',
+    run: checkStockViewCoverage,
+  },
+  {
+    id: 'schema_parity',
+    name: 'Parité schémas',
+    description: 'Quantités et valeurs identiques entre legacy /stock et /stockView par (dépôt, SKU)',
+    run: compareSchemas,
+  },
+  {
+    id: 'movement_completeness',
+    name: 'Complétude mouvements',
+    description: `Derniers ${SAMPLE_LIMIT} mouvements — tous les champs obligatoires présents`,
+    run: checkMovementCompleteness,
+  },
+];
+
+export async function generateMigrationReport(): Promise<MigrationReport> {
+  const allChecks = [...MIGRATION_ONLY_CHECKS, ...INTEGRITY_CHECKS];
+  const results: CheckResult[] = [];
+
+  for (const check of allChecks) {
+    try {
+      const raw = await check.run();
+      results.push({ id: check.id, name: check.name, description: check.description, ...raw });
+    } catch (err: any) {
+      results.push({
+        id: check.id, name: check.name, description: check.description,
+        status: 'fail', totalChecked: 0, issueCount: 1,
+        issues: [{ path: 'runner', detail: err?.message ?? 'Erreur interne', severity: 'fail' }],
+      });
+    }
+  }
+
+  const passed   = results.filter(r => r.status === 'pass').length;
+  const warnings = results.filter(r => r.status === 'warn').length;
+  const failures = results.filter(r => r.status === 'fail').length;
+  const blockers = results
+    .filter(r => r.status === 'fail')
+    .map(r => `${r.name}: ${r.issueCount} problème(s)`);
+  const readyToActivate = failures === 0;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    schemaVersion: 'phase-0',
+    readyToActivate,
+    summary: { totalChecks: results.length, passed, warnings, failures },
+    checks: results.map(r => ({
+      id: r.id, name: r.name, status: r.status,
+      issueCount: r.issueCount, durationMs: r.durationMs,
+    })),
+    activationBlockers: blockers,
+    recommendation: readyToActivate
+      ? 'Toutes les vérifications passées. Vous pouvez définir VITE_USE_STOCKVIEW_READS=true dans .env.local.'
+      : `${failures} échec(s) à corriger avant activation. Utilisez les actions de réparation dans la console.`,
+  };
+}
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const INTEGRITY_CHECKS: IntegrityCheckDef[] = [
@@ -315,5 +533,24 @@ export const INTEGRITY_CHECKS: IntegrityCheckDef[] = [
     name: 'Lots expirés actifs',
     description: 'Lots passé leur DLC mais toujours isActive=true (violation FEFO)',
     run: checkExpiredActiveLots,
+  },
+  // ─── Phase 1 activation gate ───────────────────────────────────────────────
+  {
+    id: 'stockview_coverage',
+    name: 'Couverture StockView',
+    description: 'Chaque (dépôt, SKU) actif a un document /stockView — requis pour Phase 1',
+    run: checkStockViewCoverage,
+  },
+  {
+    id: 'schema_parity',
+    name: 'Parité schémas',
+    description: 'Quantités et valeurs identiques entre legacy /stock et /stockView',
+    run: compareSchemas,
+  },
+  {
+    id: 'movement_completeness',
+    name: 'Complétude mouvements',
+    description: `Derniers ${SAMPLE_LIMIT} mouvements avec tous les champs obligatoires`,
+    run: checkMovementCompleteness,
   },
 ];
