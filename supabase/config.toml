@@ -1,0 +1,9 @@
+# Configuration Supabase CLI (minimale). project_id = nom local du projet.
+project_id = "depotek"
+
+[functions.assistant]
+verify_jwt = true
+
+# Appelée par pg_cron avec l'en-tête x-cron-secret (pas de JWT utilisateur)
+[functions.daily-briefing]
+verify_jwt = false
