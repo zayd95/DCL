@@ -32,3 +32,13 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
   if (error) throw new Error(error.message);
   return data as T;
 }
+
+/** Envoie une photo/PDF (facture, bon de livraison, reçu) : le moteur la lit et propose la saisie dans « À traiter ». */
+export async function uploadDocument(userId: string, file: File): Promise<void> {
+  const ext = file.type === 'application/pdf' ? 'pdf' : (file.type.split('/')[1] || 'jpg');
+  const path = `${userId}/app-${Date.now()}.${ext}`;
+  const up = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+  if (up.error) throw new Error(up.error.message);
+  const ins = await supabase.from('documents').insert({ storage_path: path, mime: file.type, source: 'app', uploaded_by: userId });
+  if (ins.error) throw new Error(ins.error.message);
+}

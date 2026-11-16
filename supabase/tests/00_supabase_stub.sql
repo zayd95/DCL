@@ -20,3 +20,9 @@ $$;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
 create publication supabase_realtime;
+-- Vault minimal (secrets en clair : uniquement pour les tests)
+create schema vault;
+create table vault.secrets (name text primary key, secret text);
+create view vault.decrypted_secrets as select name, secret as decrypted_secret from vault.secrets;
+create function vault.create_secret(p_secret text, p_name text) returns uuid language sql as $$
+  insert into vault.secrets values (p_name, p_secret); select gen_random_uuid() $$;

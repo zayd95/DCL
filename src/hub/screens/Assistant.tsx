@@ -1,21 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Send, Check, X } from 'lucide-react';
-import { supabase, type Profile, canSeeFinance } from '../supabase';
+import { Mic, Send, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search } from 'lucide-react';
+import { supabase, rpc, type Profile, canSeeFinance, uploadDocument } from '../supabase';
+import { fcfa } from '../ui';
 import { cx as cn } from '../cx';
 
 type Msg = { role: 'user' | 'model'; text: string; action?: { id: string; summary: string; state?: 'done' } };
 
-const SUGGESTIONS_FINANCE = [
-  'Briefing du jour',
-  'Qui me doit de l’argent ?',
-  'Ventes et marge de la semaine',
-  'Qu’est-ce que je dois commander ?',
+// Phrases modèles : elles remplissent la zone de saisie, il suffit d'ajuster et d'envoyer
+const TEMPLATES = [
+  { icon: ArrowUpFromLine, label: 'Vente', text: 'Vends 20 cartons de cuisse de poulet à Moussa à 15 000' },
+  { icon: ArrowDownToLine, label: 'Réception', text: 'Réception de 400 cartons de foie de bœuf, lot BR-2211, expire le 2027-06-30, chambre viande' },
+  { icon: Banknote, label: 'Encaissement', text: 'Moussa a payé 500 000 par Wave' },
+  { icon: Search, label: 'Question', text: 'Quels lots expirent cette semaine ?' },
 ];
-const SUGGESTIONS_STOCK = ['Stock par produit', 'Quels lots expirent bientôt ?', 'Alertes'];
+const QUICK_FINANCE = ['Briefing du jour', 'Qui me doit de l’argent ?', 'Quelles chambres sont libres ?'];
+const QUICK_STOCK = ['Stock par produit', 'Quels lots expirent bientôt ?', 'Quelles chambres sont libres ?'];
+
+interface Welcome { sales: string; sub: string; expiring: number; overdue: number | null; reorder: number | null }
 
 const STORAGE_KEY = 'depotek.assistant.history';
 
-export function Assistant({ profile }: { profile: Profile }) {
+export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTasks?: number }) {
   const [messages, setMessages] = useState<Msg[]>(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
   });
@@ -23,10 +28,49 @@ export function Assistant({ profile }: { profile: Profile }) {
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const finance = canSeeFinance(profile.role);
+  const [welcome, setWelcome] = useState<Welcome | null>(null);
+
+  // Petit tableau de bord d'accueil
+  useEffect(() => {
+    if (messages.length) return;
+    (async () => {
+      try {
+        const [day, exp, brief] = await Promise.all([
+          rpc<{ sales_count: number; sales_xof: number | null; payments_xof: number | null }>('operations_day', {}),
+          supabase.from('v_stock_lots').select('lot_number', { count: 'exact', head: true })
+            .in('fefo_status', ['EXPIRE', 'CRITIQUE']).is('owner_client_id', null),
+          finance ? rpc<{ overdue_xof: number; reorder: unknown[] }>('daily_briefing', {}) : Promise.resolve(null),
+        ]);
+        setWelcome({
+          sales: finance ? fcfa(day.sales_xof) : String(day.sales_count),
+          sub: finance ? `${day.sales_count} vente${day.sales_count > 1 ? 's' : ''} · encaissé ${fcfa(day.payments_xof)}` : 'ventes aujourd’hui',
+          expiring: exp.count ?? 0,
+          overdue: brief ? Number(brief.overdue_xof) : null,
+          reorder: brief ? brief.reorder.length : null,
+        });
+      } catch { /* l'accueil reste simple */ }
+    })();
+  }, [messages.length, finance]);
+
+  const sendFile = async (file: File) => {
+    setMessages((m) => [...m, { role: 'user', text: `📎 ${file.name || 'Photo du document'}` }]);
+    setBusy(true);
+    try {
+      await uploadDocument(profile.id, file);
+      setMessages((m) => [...m, { role: 'model', text: 'Document reçu. Je le lis et je prépare la saisie (réception, facture fournisseur…). Vous la validerez en un geste dans « À traiter ».' }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'model', text: `⚠️ ${(e as Error).message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch { /* stockage indisponible */ }
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length) endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const call = async (body: Record<string, unknown>) => {
@@ -89,29 +133,85 @@ export function Assistant({ profile }: { profile: Profile }) {
     rec.start();
   };
 
-  const suggestions = canSeeFinance(profile.role) ? SUGGESTIONS_FINANCE : SUGGESTIONS_STOCK;
+  const quick = finance ? QUICK_FINANCE : QUICK_STOCK;
+  const first = profile.full_name?.split(' ')[0] || '';
 
   return (
     <div className="h-full flex flex-col">
-      <header className="px-5 pt-6 pb-3 flex items-end justify-between">
-        <div>
-          <h1 className="text-title font-black text-brand-ink uppercase tracking-tight">Assistant</h1>
-          <p className="text-caption text-text-secondary">Bonjour {profile.full_name?.split(' ')[0] || ''} — posez votre question</p>
+      {messages.length > 0 && (
+        <div className="px-5 pt-3 flex justify-end">
+          <button onClick={() => setMessages([])} className="text-caption text-brand font-semibold">Nouvelle conversation</button>
         </div>
-        {messages.length > 0 && (
-          <button onClick={() => setMessages([])} className="text-caption text-text-muted underline">Effacer</button>
-        )}
-      </header>
+      )}
 
       <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-4">
         {messages.length === 0 && (
-          <div className="pt-6 space-y-2">
-            {suggestions.map((s) => (
-              <button key={s} onClick={() => send(s)}
-                className="block w-full text-left bg-surface-card border border-border-default rounded-2xl px-4 py-3 text-body text-text-primary">
-                {s}
-              </button>
-            ))}
+          <div className="pt-4 space-y-4">
+            <div className="px-1">
+              <p className="text-title font-bold text-text-primary">Bonjour{first ? ` ${first}` : ''}</p>
+              <p className="text-caption text-text-secondary">
+                {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Dakar' })}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 bg-surface-card rounded-2xl overflow-hidden divide-x divide-border-default">
+              <div className="px-4 py-3">
+                <p className="text-caption text-text-secondary">Aujourd’hui</p>
+                <p className="text-body font-semibold text-text-primary tabular-nums truncate">{welcome?.sales ?? '—'}</p>
+                <p className="text-micro text-text-muted truncate">{welcome?.sub ?? ''}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-caption text-text-secondary">À traiter</p>
+                <p className={cn('text-body font-semibold tabular-nums', openTasks > 0 ? 'text-status-danger' : 'text-text-primary')}>{openTasks}</p>
+                <p className="text-micro text-text-muted">à valider</p>
+              </div>
+            </div>
+            <div className="bg-surface-card rounded-2xl overflow-hidden">
+              {[
+                { label: 'Lots à écouler (≤ 15 j)', value: welcome ? String(welcome.expiring) : '—', alert: (welcome?.expiring ?? 0) > 0, q: 'Quels lots expirent bientôt ?' },
+                ...(finance ? [
+                  { label: 'Créances en retard', value: welcome?.overdue != null ? fcfa(welcome.overdue) : '—', alert: (welcome?.overdue ?? 0) > 0, q: 'Qui me doit de l’argent ?' },
+                  { label: 'Produits à commander', value: welcome?.reorder != null ? String(welcome.reorder) : '—', alert: (welcome?.reorder ?? 0) > 0, q: 'Qu’est-ce que je dois commander ?' },
+                ] : []),
+              ].map((r, i) => (
+                <button key={r.label} onClick={() => send(r.q)}
+                  className={cn('w-full flex items-center justify-between px-4 py-3 text-left active:bg-surface-subtle', i > 0 && 'border-t border-border-default')}>
+                  <span className="text-body text-text-primary">{r.label}</span>
+                  <span className={cn('text-body font-semibold tabular-nums', r.alert ? 'text-status-danger' : 'text-text-muted')}>{r.value}</span>
+                </button>
+              ))}
+            </div>
+
+            <div>
+              <p className="text-caption text-text-secondary px-1 pb-2">Dites-le simplement</p>
+              <div className="bg-surface-card rounded-2xl overflow-hidden">
+                {TEMPLATES.map((t, i) => (
+                  <button key={t.label} onClick={() => { setInput(t.text); inputRef.current?.focus(); }}
+                    className={cn('w-full flex items-start gap-3 px-4 py-3 text-left active:bg-surface-subtle', i > 0 && 'border-t border-border-default')}>
+                    <t.icon size={18} className="text-brand mt-0.5 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-caption font-semibold text-text-primary">{t.label}</span>
+                      <span className="block text-caption text-text-muted">« {t.text} »</span>
+                    </span>
+                  </button>
+                ))}
+                <button onClick={() => fileRef.current?.click()}
+                  className="w-full flex items-start gap-3 px-4 py-3 text-left border-t border-border-default active:bg-surface-subtle">
+                  <Camera size={18} className="text-brand mt-0.5 shrink-0" />
+                  <span>
+                    <span className="block text-caption font-semibold text-text-primary">Photo d’un document</span>
+                    <span className="block text-caption text-text-muted">Bon de livraison, facture fournisseur, reçu : je saisis pour vous</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {quick.map((q) => (
+                <button key={q} onClick={() => send(q)}
+                  className="rounded-full bg-surface-card border border-border-default px-3 py-1.5 text-caption text-text-primary">{q}</button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((m, i) => (
@@ -140,13 +240,19 @@ export function Assistant({ profile }: { profile: Profile }) {
 
       <form onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="px-3 pt-2 pb-24 flex gap-2 items-center bg-surface-page border-t border-border-default">
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
+        <button type="button" onClick={() => fileRef.current?.click()} aria-label="Photo d’un document"
+          className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-surface-subtle text-brand">
+          <Camera size={20} />
+        </button>
         <button type="button" onClick={listen}
           className={cn('w-11 h-11 rounded-full flex items-center justify-center shrink-0',
             listening ? 'bg-status-danger text-white animate-pulse' : 'bg-surface-subtle text-brand')}>
           <Mic size={20} />
         </button>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ex. Vends 20 cartons de foie à Moussa"
-          className="flex-1 rounded-full border border-border-strong bg-surface-card px-4 py-3 text-body focus:outline-none focus:border-border-focus" />
+        <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Écrivez ou dictez…"
+          className="flex-1 min-w-0 rounded-full border border-border-strong bg-surface-card px-4 py-3 text-body focus:outline-none focus:border-border-focus" />
         <button disabled={busy || !input.trim()}
           className="w-11 h-11 rounded-full bg-brand text-white flex items-center justify-center shrink-0 disabled:opacity-40">
           <Send size={18} />

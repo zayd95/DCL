@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { supabase, type Profile, canSeeFinance } from '../supabase';
 import { Screen, Card, Badge, Empty, ErrorNote, Sheet, fcfa, qty, shortDate, fefoTone } from '../ui';
+import { RoomsView } from './Rooms';
+import { cx } from '../cx';
 
 interface ProductRow {
   product_id: string; sku: string; product_name: string; unit_type: string;
@@ -10,7 +12,7 @@ interface ProductRow {
 interface LotRow {
   lot_number: string; depot_code: string; quantity: number; unit_type: string; expiry_date: string | null;
   days_to_expiry: number | null; fefo_status: string; value_xof: number; container_no: string | null;
-  supplier: string | null; owner_client: string | null; product_name: string;
+  supplier: string | null; owner_client: string | null; product_name: string; room_name?: string | null;
 }
 
 export function Stock({ profile }: { profile: Profile }) {
@@ -21,6 +23,7 @@ export function Stock({ profile }: { profile: Profile }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const finance = canSeeFinance(profile.role);
+  const [view, setView] = useState<'produits' | 'chambres'>('produits');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,6 +58,15 @@ export function Stock({ profile }: { profile: Profile }) {
   return (
     <Screen title="Stock" subtitle={finance ? `Valeur : ${fcfa(total)}` : `${products.length} produits`}
       right={reorder > 0 ? <Badge tone="warn">{reorder} à commander</Badge> : undefined}>
+      <div className="flex gap-1 bg-surface-subtle rounded-2xl p-1">
+        {(['produits', 'chambres'] as const).map((k) => (
+          <button key={k} onClick={() => setView(k)}
+            className={cx('flex-1 rounded-xl py-2 text-body font-bold', view === k ? 'bg-surface-card text-brand shadow-sm' : 'text-text-secondary')}>
+            {k === 'produits' ? 'Produits' : 'Chambres froides'}
+          </button>
+        ))}
+      </div>
+      {view === 'chambres' ? <RoomsView finance={finance} /> : <>
       <ErrorNote error={error} />
       {!loading && products.length === 0 && <Empty>Aucun produit. Ajoutez-en dans Réglages.</Empty>}
       {products.map((p) => (
@@ -84,11 +96,12 @@ export function Stock({ profile }: { profile: Profile }) {
           {tenantLots.map((l) => (
             <Card key={l.lot_number + l.depot_code}>
               <p className="text-body font-bold">{l.owner_client} — {l.product_name}</p>
-              <p className="text-caption text-text-muted">Lot {l.lot_number} · {qty(l.quantity)} {l.unit_type} · {l.depot_code}</p>
+              <p className="text-caption text-text-muted">Lot {l.lot_number} · {qty(l.quantity)} {l.unit_type} · {l.depot_code}{l.room_name ? ` · ${l.room_name}` : ''}</p>
             </Card>
           ))}
         </>
       )}
+      </>}
 
       <Sheet open={!!selected} title={selected?.product_name ?? ''} onClose={() => setSelected(null)}>
         <p className="text-caption text-text-secondary">Ordre de sortie FEFO : le premier lot sort en premier.</p>
@@ -100,7 +113,7 @@ export function Stock({ profile }: { profile: Profile }) {
               <Badge tone={fefoTone(l.fefo_status)}>{l.fefo_status}</Badge>
             </div>
             <p className="text-caption text-text-secondary mt-1">
-              {qty(l.quantity)} {l.unit_type} · {l.depot_code} · exp. {shortDate(l.expiry_date)}
+              {qty(l.quantity)} {l.unit_type} · {l.depot_code}{l.room_name ? ` · ${l.room_name}` : ''} · exp. {shortDate(l.expiry_date)}
               {l.days_to_expiry != null && ` (${l.days_to_expiry} j)`}
             </p>
             <p className="text-caption text-text-muted">

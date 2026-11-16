@@ -65,7 +65,7 @@ do $$ begin
   begin
     perform dispatch_fefo('POU-CUI-10', 50, 'Moussa Traders');
     raise exception 'devait échouer';
-  exception when others then assert sqlerrm like 'Limite de crédit dépassée%', sqlerrm; end;
+  exception when others then assert sqlerrm ilike '%limite de crédit dépassée%', sqlerrm; end;
   begin
     perform dispatch_fefo('POU-CUI-10', 50, 'Moussa Traders', null, null, null, true, true);
     raise exception 'devait échouer';
@@ -130,28 +130,76 @@ reset role;
 -- Simule une échéance dépassée
 update invoices set due_date = current_date - 20 where status = 'partielle';
 
--- ─── Stockage tiers ──────────────────────────────────────────────────────────
-insert into storage_contracts (client_id, depot_id, rate_pallet_day_xof, min_monthly_xof, start_date)
-select c.id, d.id, 500, 0, date_trunc('month', current_date - interval '1 month')::date
-  from clients c, depots d where c.name = 'Poissonnerie Soumbedioune' and d.code = 'ALM';
--- 10 palettes du 1er au 11 du mois dernier, puis 4 palettes jusqu'à la fin
-insert into storage_pallet_events (contract_id, pallets, happened_at)
-select id, 10, date_trunc('month', current_date - interval '1 month') from storage_contracts;
-insert into storage_pallet_events (contract_id, pallets, happened_at)
-select id, -6, date_trunc('month', current_date - interval '1 month') + interval '10 days' from storage_contracts;
+-- ─── Chambres froides & location de chambres entières ───────────────────────
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+update storage_units set capacity_cartons = 40 where code = 'CF1';
+insert into storage_units (depot_id, code, name, kind, categories, capacity_tonnes)
+select id, 'CF2', 'Chambre poisson', 'frozen', '{poisson}', 20 from depots where code = 'ALM';
+insert into storage_units (depot_id, code, name, kind, capacity_tonnes)
+select id, x.code, x.name, 'chilled', 10 from depots, (values ('CF3', 'Chambre 3'), ('CF4', 'Chambre 4')) x(code, name) where depots.code = 'ALM';
+reset role;
+
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+select move_lot('POU-CUI-10', 'LOT-B', 'CF1');
+do $$ begin
+  -- Hygiène : pas de volaille dans la chambre poisson
+  begin
+    perform receive_lot('POU-CUI-10', 5, 'LOT-X', 'ALM', current_date + 30, null, null, 'XOF', null, null, null, null, 'CF2');
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like 'Chambre Chambre poisson réservée à : poisson%', sqlerrm; end;
+  assert (select fill_pct from v_storage_rooms where room_code = 'CF1') = 100, 'CF1 pleine (40/40 cartons)';
+  assert (select status from v_storage_rooms where room_code = 'CF1') = 'ods';
+end $$;
+reset role;
 
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
-select bill_storage();
+-- Location mensuelle depuis le 1er du mois : loyer complet facturé d'avance
+select rent_room('Poissonnerie', 'CF3', 'mensuel', 300000, date_trunc('month', current_date)::date);
 select bill_storage();   -- idempotent
 do $$
-declare v_days integer := extract(day from date_trunc('month', current_date) - interval '1 day')::integer;
+declare v_days int := extract(day from date_trunc('month', current_date) + interval '1 month - 1 day')::int;
+        v_from date := current_date + 1;
+        r jsonb;
 begin
-  assert (select count(*) from invoices where kind = 'stockage') = 1, 'une seule facture de stockage';
+  assert (select count(*) from invoices where kind = 'stockage') = 1, 'une facture de location';
   assert (select number from invoices where kind = 'stockage') like 'STO-%-00001', 'numérotation séparée';
-  assert (select total_xof from invoices where kind = 'stockage') = (10 * 10 + 4 * (v_days - 10)) * 500,
-    format('montant stockage %s', (select total_xof from invoices where kind = 'stockage'));
-  assert (select sum(line_total_xof) from invoice_lines il join invoices i on i.id = il.invoice_id where i.kind = 'stockage')
-       = (select total_xof from invoices where kind = 'stockage'), 'lignes = total';
+  assert (select total_xof from invoices where kind = 'stockage') = 300000, 'loyer mensuel complet';
+  assert (select description from invoice_lines il join invoices i on i.id = il.invoice_id where i.kind = 'stockage')
+         like '%Électricité à la charge du locataire.', 'électricité mentionnée';
+  -- Chambre déjà louée sur la période
+  begin
+    perform rent_room('Moussa', 'CF3', 'mensuel', 100000);
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like '%déjà louée%', sqlerrm; end;
+  -- Chambre contenant du stock ODS
+  begin
+    perform rent_room('Moussa', 'CF1', 'mensuel', 100000);
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like '%contient encore%', sqlerrm; end;
+  -- Forfait 5 jours : facturé une fois
+  r := rent_room('Moussa', 'CF2', 'forfait', 150000, current_date, current_date + 5, true);
+  assert (select total_xof from invoices i join clients c on c.id = i.client_id where i.kind = 'stockage' and c.name = 'Moussa Traders') = 150000, 'forfait';
+  -- Prorata : début demain
+  if v_from <= (date_trunc('month', current_date) + interval '1 month - 1 day')::date then
+    r := rent_room('Moussa', 'CF4', 'mensuel', 310000, v_from);
+    assert (select total_xof from invoices i join storage_billing_runs b on b.invoice_id = i.id
+             join storage_contracts sc on sc.id = b.contract_id join storage_units u on u.id = sc.storage_unit_id where u.code = 'CF4')
+           = round(310000 * ((date_trunc('month', current_date) + interval '1 month - 1 day')::date - v_from + 1)::numeric / v_days),
+           'prorata premier mois';
+  end if;
+  assert (select status from v_storage_rooms where room_code = 'CF3') = 'louee';
+end $$;
+reset role;
+
+-- Chambre louée : seule la marchandise du locataire y entre
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ begin
+  begin
+    perform receive_lot('Foie', 5, 'LOT-Y', 'ALM', current_date + 30, null, null, 'XOF', null, null, null, null, 'CF3');
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like '%louée à Poissonnerie Soumbedioune%', sqlerrm; end;
+  perform receive_lot('Foie', 5, 'T-1', 'ALM', current_date + 30, null, null, 'XOF', null, null, null, null, 'CF3', 'Poissonnerie');
+  assert (select owner_client from v_stock_lots where lot_number = 'T-1') = 'Poissonnerie Soumbedioune', 'stock du locataire';
 end $$;
 reset role;
 
@@ -190,3 +238,97 @@ do $$ begin
 end $$;
 reset role;
 select 'FONCTIONS INTERNES VERROUILLÉES' as resultat;
+
+-- ═══ Moteur ══════════════════════════════════════════════════════════════════
+select engine_scan() as taches_creees;
+do $$ begin
+  assert (select engine_scan()) = 0, 'moteur idempotent';
+  assert exists (select 1 from tasks where kind = 'reappro' and action->>'tool' = 'bon_commande'), 'réappro préparé';
+  assert exists (select 1 from tasks where kind = 'creance' and link like 'https://wa.me/221770000001?text=%'), 'relance WhatsApp prête';
+  assert exists (select 1 from tasks where kind = 'chambre' and title like '%Grande chambre 1%'), 'chambre pleine signalée';
+  assert exists (select 1 from tasks where kind = 'location' and title like '%Moussa%CF2%') or exists (select 1 from tasks where kind = 'location'), 'fin de location signalée';
+end $$;
+
+-- Magasinier : voit le stock (FEFO / rupture), pas les créances, ne peut pas valider un bon de commande
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$
+declare v_task uuid;
+begin
+  assert not exists (select 1 from tasks where kind = 'creance'), 'magasinier ne voit pas les créances';
+  assert not exists (select 1 from tasks where kind = 'reappro'), 'réappro réservé au manager';
+  -- Vente à perte bloquée (LOT-B coûte 6 000 FCFA)
+  begin
+    perform dispatch_fefo('POU-CUI-10', 1, 'Poissonnerie Soumbedioune', null, 5000);
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like 'VENTE BLOQUÉE — prix%', sqlerrm; end;
+end $$;
+reset role;
+
+-- CFO : valide la commande proposée → bon de commande créé ; refuser une seconde fois = sans effet
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+do $$
+declare v_task uuid; r jsonb;
+begin
+  select id into v_task from tasks where kind = 'reappro' limit 1;
+  r := decide_task(v_task, 'valider');
+  assert r->>'status' = 'validee', r::text;
+  assert (r->'result'->>'number') like 'BC-%', r::text;
+  assert (decide_task(v_task, 'refuser'))->>'message' = 'Déjà traitée', 'pas de double décision';
+  assert (select count(*) from purchase_orders) = 1, 'bon de commande';
+end $$;
+reset role;
+
+-- Admin : vente à perte avec dérogation → passe, et une alerte "anomalie" est créée
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select dispatch_fefo('POU-CUI-10', 1, 'Poissonnerie Soumbedioune', null, 5000, 0, true, true, 'Promo');
+do $$ begin
+  assert exists (select 1 from tasks where kind = 'anomalie' and title like 'Dérogation%'), 'dérogation signalée';
+end $$;
+reset role;
+
+-- Telegram : décision au nom d'un utilisateur réservée au service_role
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ begin
+  begin
+    perform decide_task((select id from tasks limit 1), 'valider', '00000000-0000-0000-0000-00000000000a');
+    raise exception 'devait échouer';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+select 'MOTEUR OK' as resultat;
+
+-- Document lu → réception validée par le magasinier (format produit par engine/logic.ts)
+insert into tasks (kind, title, body, audience, action, dedupe_key) values ('document', 'Facture lue', '-', '{magasinier,manager,admin}',
+  '{"tool":"reception","args":{"fournisseur":"Allana","conteneur":"MSCU9","devise":"EUR","reference":"INV-77",
+    "lignes":[{"produit":"BOE-FOI-20","quantite":50,"lot":"L-77","expiration":"2030-01-01","cout_unitaire":30}]}}', 'document:test');
+update profiles set depot_id = (select id from depots where code = 'ALM') where id = '00000000-0000-0000-0000-00000000000b';
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ declare r jsonb; begin
+  r := decide_task((select id from tasks where dedupe_key = 'document:test'), 'valider');
+  assert r->>'status' = 'validee', r::text;
+  assert (select quantity from v_stock_lots where lot_number = 'L-77') = 50, 'lot reçu';
+  assert (select round(cost_unit_xof) from lots where lot_number = 'L-77') = round(30 * 655.957), 'coût converti EUR';
+end $$;
+reset role;
+select 'DOCUMENT → RÉCEPTION OK' as resultat;
+
+-- ═══ Opérations du jour ═════════════════════════════════════════════════════
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+do $$ declare r jsonb; begin
+  r := operations_day();
+  assert (r->>'sales_count')::int >= 3, r::text;
+  assert (r->>'sales_xof')::bigint > 0 and (r->>'payments_xof')::bigint > 0, 'montants visibles pour la finance';
+  assert jsonb_array_length(r->'journal') > 5, 'journal';
+  assert exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'location'), 'location au journal';
+  assert exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'encaissement'), 'encaissement au journal';
+end $$;
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ declare r jsonb; begin
+  r := operations_day();
+  assert r->>'sales_xof' is null and r->>'payments_xof' is null, 'magasinier : pas de montants';
+  assert not exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'amount_xof' is not null), 'journal sans montants';
+  assert not exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'encaissement'), 'pas d''encaissements';
+end $$;
+reset role;
+select 'OPERATIONS OK' as resultat;
