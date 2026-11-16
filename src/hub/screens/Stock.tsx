@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { supabase, type Profile, canSeeFinance } from '../supabase';
-import { Screen, Card, Badge, Empty, ErrorNote, Sheet, fcfa, qty, shortDate, fefoTone } from '../ui';
+import { supabase, rpc, type Profile, canSeeFinance } from '../supabase';
+import { Screen, Card, Badge, Empty, ErrorNote, Sheet, Field, Input, Select, Button, fcfa, qty, shortDate, fefoTone } from '../ui';
 import { RoomsView } from './Rooms';
 import { cx } from '../cx';
 
@@ -13,7 +13,12 @@ interface LotRow {
   lot_number: string; depot_code: string; quantity: number; unit_type: string; expiry_date: string | null;
   days_to_expiry: number | null; fefo_status: string; value_xof: number; container_no: string | null;
   supplier: string | null; owner_client: string | null; product_name: string; room_name?: string | null;
+  sku?: string; cost_unit_xof?: number | null; weight_kg?: number | null;
 }
+
+const FEFO_LABEL: Record<string, string> = {
+  EXPIRE: 'Expiré', CRITIQUE: 'À écouler', ATTENTION: 'À surveiller', OK: 'OK', INCONNU: 'DLC à saisir',
+};
 
 export function Stock({ profile }: { profile: Profile }) {
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -23,6 +28,9 @@ export function Stock({ profile }: { profile: Profile }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const finance = canSeeFinance(profile.role);
+  const [edit, setEdit] = useState<LotRow | null>(null);
+  const [ev, setEv] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
   const [view, setView] = useState<'produits' | 'chambres'>('produits');
 
   const load = useCallback(async () => {
@@ -50,6 +58,22 @@ export function Stock({ profile }: { profile: Profile }) {
     const { data } = await supabase.from('v_stock_lots').select('*')
       .eq('product_id', p.product_id).is('owner_client_id', null).order('expiry_date', { nullsFirst: false });
     setLots((data ?? []) as LotRow[]);
+  };
+
+  const saveLot = async () => {
+    if (!edit) return;
+    setBusy(true); setError(null);
+    try {
+      await rpc('update_lot_info', {
+        p_product: edit.sku, p_lot_number: edit.lot_number, p_expiry_date: ev.expiry || undefined,
+        p_cost_unit: ev.cost ? Number(ev.cost.replace(',', '.')) : undefined,
+        p_cost_currency: ev.cost ? (ev.currency || 'XOF') : undefined,
+        p_fx_rate_to_xof: ev.fx ? Number(ev.fx.replace(',', '.')) : undefined,
+      });
+      setEdit(null);
+      if (selected) await open(selected);
+      load();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
   const total = products.reduce((s, p) => s + Number(p.value_xof || 0), 0);
@@ -106,21 +130,55 @@ export function Stock({ profile }: { profile: Profile }) {
       <Sheet open={!!selected} title={selected?.product_name ?? ''} onClose={() => setSelected(null)}>
         <p className="text-caption text-text-secondary">Ordre de sortie FEFO : le premier lot sort en premier.</p>
         {lots.length === 0 && <Empty>Aucun lot en stock.</Empty>}
-        {lots.map((l, i) => (
-          <div key={l.lot_number + l.depot_code} className="border border-border-default rounded-2xl p-3">
-            <div className="flex justify-between items-center">
-              <p className="text-body font-bold">{i + 1}. Lot {l.lot_number}</p>
-              <Badge tone={fefoTone(l.fefo_status)}>{l.fefo_status}</Badge>
+        {lots.map((l, i) => {
+          const noCost = l.cost_unit_xof == null;
+          const noRoom = !l.room_name;
+          const noDlc = !l.expiry_date;
+          return (
+            <div key={l.lot_number + l.depot_code} className="border border-border-default rounded-2xl p-3 space-y-1">
+              <div className="flex justify-between items-center gap-2">
+                <p className="text-body font-bold">{i + 1}. Lot {l.lot_number}</p>
+                <Badge tone={l.fefo_status === 'INCONNU' ? 'warn' : fefoTone(l.fefo_status)}>{FEFO_LABEL[l.fefo_status] ?? l.fefo_status}</Badge>
+              </div>
+              <p className="text-caption text-text-secondary">
+                {qty(l.quantity)} {l.unit_type}{l.unit_type === "carton" && Number(l.quantity) > 1 ? "s" : ""}{l.weight_kg ? ` · ${qty(Number(l.weight_kg) / 1000)} t` : ''} · {l.depot_code} · {noRoom ? <span className="text-status-warning font-semibold">sans chambre</span> : l.room_name}
+              </p>
+              <p className="text-caption text-text-secondary">
+                {noDlc ? <span className="text-status-warning font-semibold">DLC non renseignée</span>
+                  : <>Exp. {shortDate(l.expiry_date)}{l.days_to_expiry != null && ` (${l.days_to_expiry} j)`}</>}
+              </p>
+              <p className="text-caption text-text-muted">
+                {[l.supplier, l.container_no && `Conteneur ${l.container_no}`].filter(Boolean).join(' · ')}
+              </p>
+              {finance && (
+                <p className="text-caption text-text-secondary">
+                  {noCost ? <span className="text-status-warning font-semibold">Coût à saisir — valeur non comptée</span>
+                    : <>Coût {fcfa(l.cost_unit_xof)} / {l.unit_type} · valeur {fcfa(l.value_xof)}</>}
+                </p>
+              )}
+              {finance && (noCost || noDlc) && (
+                <button onClick={() => { setEdit(l); setEv({}); }} className="text-caption font-semibold text-brand pt-1">Compléter le lot ›</button>
+              )}
             </div>
-            <p className="text-caption text-text-secondary mt-1">
-              {qty(l.quantity)} {l.unit_type} · {l.depot_code}{l.room_name ? ` · ${l.room_name}` : ''} · exp. {shortDate(l.expiry_date)}
-              {l.days_to_expiry != null && ` (${l.days_to_expiry} j)`}
-            </p>
-            <p className="text-caption text-text-muted">
-              {[l.supplier, l.container_no].filter(Boolean).join(' · ')}{finance && ` · ${fcfa(l.value_xof)}`}
-            </p>
+          );
+        })}
+      </Sheet>
+
+      <Sheet open={!!edit} title={`Lot ${edit?.lot_number ?? ''}`} onClose={() => setEdit(null)}>
+        {edit && !edit.expiry_date && (
+          <Field label="Date limite (DLC)"><Input type="date" value={ev.expiry ?? ''} onChange={(e) => setEv({ ...ev, expiry: e.target.value })} /></Field>
+        )}
+        {edit && edit.cost_unit_xof == null && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`Coût par ${edit.unit_type}`}><Input inputMode="decimal" value={ev.cost ?? ''} onChange={(e) => setEv({ ...ev, cost: e.target.value })} /></Field>
+            <Field label="Devise"><Select options={[{ value: 'XOF', label: 'FCFA' }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }]}
+              value={ev.currency ?? 'XOF'} onChange={(e) => setEv({ ...ev, currency: e.target.value })} /></Field>
           </div>
-        ))}
+        )}
+        {ev.currency === 'USD' && <Field label="Taux USD → FCFA"><Input inputMode="decimal" value={ev.fx ?? ''} onChange={(e) => setEv({ ...ev, fx: e.target.value })} /></Field>}
+        <p className="text-caption text-text-muted">L’euro est converti au taux fixe 655,957. Le grand livre n’est pas modifié : seule la fiche du lot est complétée.</p>
+        <ErrorNote error={error} />
+        <Button className="w-full" disabled={busy || (!ev.expiry && !ev.cost)} onClick={saveLot}>{busy ? '…' : 'Enregistrer'}</Button>
       </Sheet>
     </Screen>
   );

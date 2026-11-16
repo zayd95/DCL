@@ -340,7 +340,19 @@ do $$ declare r jsonb; n_real int; c_before int; begin
   select last into c_before from invoice_counters where kind = 'vente' and year = extract(year from current_date);
   perform demo_seed();
   assert (demo_status()->>'installed')::boolean, 'démo installée';
-  assert (select count(*) from v_storage_rooms where depot_code like '%-DEMO') = 6, 'chambres démo';
+  assert (select count(*) from v_storage_rooms where depot_code like '%-DEMO') = 9, 'chambres démo';
+  -- conteneurs : soldes = mouvements, chambres affectées, coûts
+  assert not exists (select b.lot_id from stock_balances b group by b.lot_id, b.depot_id, b.quantity
+                     having b.quantity <> (select sum(m.qty) from stock_movements m where m.lot_id = b.lot_id and m.depot_id = b.depot_id)), 'soldes cohérents';
+  assert (select quantity from v_stock_lots where lot_number = 'BHQ-0049') = 1100, 'BHQ après vente';
+  assert (select room_code from v_stock_lots where lot_number = 'BHQ-0049') = 'CB1', 'BHQ en CB1';
+  assert (select count(*) from v_stock_lots where lot_number = 'TIL-0113') = 2, 'tilapia sur 2 entrepôts';
+  assert (select room_code from v_stock_lots where lot_number = 'TIL-0113' and depot_code = 'SOD-DEMO') = 'S1', 'tilapia transféré en S1';
+  assert (select room_code from v_stock_lots where lot_number = 'TIL-0113' and depot_code = 'ALM-DEMO') = 'CP', 'tilapia restant en CP';
+  assert (select used_tonnes from v_storage_rooms where depot_code = 'ALM-DEMO' and room_code = 'CP') = 21, 'CP 21 t';
+  assert (select cost_unit_xof from v_stock_lots where lot_number = 'BHL-EG01') is null, 'coût manquant';
+  assert exists (select 1 from tasks where dedupe_key like 'cout:%' and status = 'ouverte'), 'tâche coût manquant';
+  assert exists (select 1 from tasks where dedupe_key like 'dlc:%' and status = 'ouverte'), 'tâche DLC';
   assert exists (select 1 from v_client_balances where client_name = 'Boucherie Ndiaye (démo)' and overdue_xof > 0), 'créance en retard';
   r := operations_day(current_date - 1);
   assert (r->>'sales_count')::int >= 4, 'historique hier : ' || r::text;
@@ -361,6 +373,9 @@ do $$ declare r jsonb; n_real int; c_before int; begin
   perform rent_room('Poissonnerie Soumbédioune (démo)', 'S2', 'mensuel', 400000, current_date, null, true, 400000, 'SOD-DEMO', null);
   r := operations_day();
   assert jsonb_array_length(r->'journal') >= 6, 'journal du jour : ' || r::text;
+  perform update_lot_info('DEMO-BUF-HALAL', 'BHL-EG01', null, 52000, 'XOF', null);
+  assert (select value_xof from v_stock_lots where lot_number = 'BHL-EG01') = 1295 * 52000, 'coût complété';
+  assert not exists (select 1 from tasks t join lots l on 'cout:' || l.id = t.dedupe_key where l.lot_number = 'BHL-EG01' and t.status = 'ouverte'), 'tâche coût résolue';
   -- purge
   perform demo_purge();
   assert not (demo_status()->>'installed')::boolean;
