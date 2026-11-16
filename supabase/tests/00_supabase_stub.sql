@@ -19,3 +19,4 @@ create function auth.role() returns text language sql stable as $$
 $$;
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
+create publication supabase_realtime;
