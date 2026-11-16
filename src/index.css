@@ -242,3 +242,10 @@
   .print-only  { display: block !important; }
 }
 .print-only { display: none; }
+
+/* Facture : seule la zone .print-area est imprimée (PDF depuis l'iPhone : Partager › Imprimer) */
+@media print {
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area { position: absolute !important; left: 0; top: 0; width: 100%; border: none !important; }
+}

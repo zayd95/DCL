@@ -6,6 +6,7 @@ import {
 import { supabase, rpc, type Profile, type Role, canSeeFinance, uploadDocument } from '../supabase';
 import { cx } from '../cx';
 import { useRooms } from './Rooms';
+import { InvoiceForm } from './Billing';
 import type { PendingOp, OpForm } from '../nav';
 import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, fcfa, qty, useDocPicker } from '../ui';
 
@@ -24,7 +25,7 @@ interface Day {
 type Form = OpForm;
 
 const ACTIONS: { key: Form; label: string; icon: LucideIcon; roles: Role[]; color?: string }[] = [
-  { key: 'vente', label: 'Vente', icon: ArrowUpFromLine, roles: ['magasinier', 'manager', 'cfo', 'admin'] },
+  { key: 'vente', label: 'Facturer', icon: ArrowUpFromLine, roles: ['magasinier', 'manager', 'cfo', 'admin'] },
   { key: 'reception', label: 'Réception', icon: ArrowDownToLine, roles: ['magasinier', 'manager', 'admin'] },
   { key: 'encaissement', label: 'Encaisser', icon: Banknote, roles: ['manager', 'cfo', 'admin'], color: '#34C759' },
   { key: 'transfert', label: 'Transfert', icon: ArrowLeftRight, roles: ['magasinier', 'manager', 'admin'], color: '#007AFF' },
@@ -361,21 +362,10 @@ export function Operations({ profile, pending }: { profile: Profile; pending?: P
 
       {docPicker.element}
       <Sheet open={form !== null} title={title} onClose={() => setForm(null)}>
-        {form === 'vente' && <>
-          <p className="flex gap-2 rounded-xl bg-surface-subtle px-3 py-2 text-caption text-text-secondary">
-            <Sparkles size={16} className="text-brand shrink-0 mt-0.5" />
-            <span>Plus rapide dans l’Assistant : « Vends 20 cartons de cuisse à Moussa à 15 000 ».</span>
-          </p>
-          <Field label="Produit"><Select options={productOpts} value={v.product ?? ''} onChange={set('product')} /></Field>
-          <Field label="Client"><Select options={clientOpts} value={v.client ?? ''} onChange={set('client')} /></Field>
-          <Field label="Quantité"><Input inputMode="decimal" value={v.qty ?? ''} onChange={set('qty')} /></Field>
-          <Field label={`Prix unitaire (FCFA)${product?.default_price_xof ? ` — défaut ${fcfa(product.default_price_xof)}` : ''}`}>
-            <Input inputMode="numeric" value={v.price ?? ''} onChange={set('price')} /></Field>
-          {depots.length > 1 && <Field label="Entrepôt (optionnel)"><Select options={depotOpts} value={v.depot ?? ''} onChange={set('depot')} /></Field>}
-          <Field label="Note"><Input value={v.note ?? ''} onChange={set('note')} /></Field>
-          {total > 0 && <p className="text-body font-bold text-brand-ink">Total : {fcfa(total)}</p>}
-          <p className="text-caption text-text-muted">Lots prélevés automatiquement selon FEFO. Vente bloquée si prix sous le coût ou crédit dépassé.</p>
-        </>}
+        {form === 'vente' && (
+          <InvoiceForm profile={profile} initialClient={v.client}
+            onDone={(r) => { setForm(null); setDone(`Facture ${r.invoice_number} créée : ${fcfa(r.total_xof)}. Retrouvez-la dans Créances › Factures.`); loadDay(); }} />
+        )}
 
         {form === 'reception' && <>
           <button onClick={docPicker.open} disabled={busy}
@@ -504,8 +494,10 @@ export function Operations({ profile, pending }: { profile: Profile; pending?: P
           <Field label="Date de fin (défaut : aujourd’hui)"><Input type="date" value={v.end ?? ''} onChange={set('end')} /></Field>
         </>}
 
-        <ErrorNote error={error} />
-        <Button className="w-full" disabled={busy || !ready(form, v)} onClick={submit}>{busy ? '…' : 'Valider'}</Button>
+        {form !== 'vente' && <>
+          <ErrorNote error={error} />
+          <Button className="w-full" disabled={busy || !ready(form, v)} onClick={submit}>{busy ? '…' : 'Valider'}</Button>
+        </>}
       </Sheet>
     </Screen>
   );

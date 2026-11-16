@@ -20,7 +20,14 @@ export interface Profile {
   role: Role;
   phone: string | null;
   telegram_chat_id: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+  active?: boolean;
+  depot_id?: string | null;
+  last_seen_at?: string | null;
 }
+
+export const ROLE_LABEL: Record<Role, string> = { magasinier: 'Magasinier', manager: 'Manager', cfo: 'Finance', admin: 'Admin' };
 
 export const canSeeFinance = (r?: Role) => r === 'manager' || r === 'cfo' || r === 'admin';
 export const canManage = (r?: Role) => r === 'manager' || r === 'admin';
