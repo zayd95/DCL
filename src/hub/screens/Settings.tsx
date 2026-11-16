@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { supabase, rpc, type Profile, canManage, canSeeFinance } from '../supabase';
 import { Screen, Card, Sheet, Field, Input, Select, Button, ErrorNote, Badge, fcfa } from '../ui';
 import { NotificationSettings } from './Notifications';
+import { RoomForm, useRooms } from './Rooms';
 
-type Form = 'product' | 'client' | 'depot' | 'contract' | 'users' | 'notifications' | null;
+type Form = 'product' | 'client' | 'depot' | 'room' | 'users' | 'notifications' | null;
 
 const ROLE_LABEL: Record<string, string> = { magasinier: 'Magasinier', manager: 'Manager', cfo: 'Finance', admin: 'Admin' };
 
@@ -13,6 +14,7 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const { rooms, reload: reloadRooms } = useRooms();
   const [counts, setCounts] = useState({ products: 0, clients: 0, depots: 0 });
   const [users, setUsers] = useState<Profile[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
@@ -57,17 +59,10 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
         setDone(`Client ${v.name} ajouté.`);
       } else if (form === 'depot') {
         const { error } = await supabase.from('depots').insert({
-          code: v.code.trim().toUpperCase(), name: v.name.trim(), type: v.type || 'frozen', capacity_pallets: num(v.capacity),
+          code: v.code.trim().toUpperCase(), name: v.name.trim(), type: v.type || 'frozen', address: v.address || null,
         });
         if (error) throw error;
         setDone(`Dépôt ${v.code} ajouté.`);
-      } else if (form === 'contract') {
-        const { error } = await supabase.from('storage_contracts').insert({
-          client_id: v.client, depot_id: v.depot || depots[0]?.id, rate_pallet_day_xof: num(v.rate) ?? 0,
-          min_monthly_xof: num(v.min) ?? 0, start_date: v.start || undefined,
-        });
-        if (error) throw error;
-        setDone('Contrat de stockage créé.');
       }
       setForm(null);
       refresh();
@@ -91,17 +86,19 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
       {done && <p className="rounded-xl bg-status-success-bg text-status-success text-body p-3" onClick={() => setDone(null)}>✅ {done}</p>}
       {counts.depots === 0 && manage && (
         <p className="rounded-xl bg-status-info-bg text-status-info text-body p-3">
-          Pour démarrer : 1) créez le dépôt, 2) ajoutez vos produits, 3) ajoutez vos clients.
+          Pour démarrer : 1) créez vos entrepôts (Almadies, Sodida…), 2) leurs chambres froides, 3) vos produits, 4) vos clients.
         </p>
       )}
       <Card onClick={() => open('notifications')}>
         <p className="text-body font-bold">Notifications du moteur</p>
         <p className="text-caption text-text-muted">iPhone{profile.telegram_chat_id ? ' · Telegram lié' : ' · Telegram'}</p>
       </Card>
-      {manage && <Card onClick={() => open('depot')}><p className="text-body font-bold">Dépôts</p><p className="text-caption text-text-muted">{counts.depots} · ajouter</p></Card>}
+      {manage && <Card onClick={() => open('depot')}><p className="text-body font-bold">Entrepôts</p><p className="text-caption text-text-muted">{depots.map((d) => d.name).join(', ') || 'Aucun'} · ajouter</p></Card>}
+      {manage && counts.depots > 0 && <Card onClick={() => open('room')}><p className="text-body font-bold">Chambres froides</p>
+        <p className="text-caption text-text-muted">{rooms.length} chambre(s) · ajouter</p></Card>}
       {manage && <Card onClick={() => open('product')}><p className="text-body font-bold">Produits</p><p className="text-caption text-text-muted">{counts.products} · ajouter</p></Card>}
       {finance && <Card onClick={() => open('client')}><p className="text-body font-bold">Clients</p><p className="text-caption text-text-muted">{counts.clients} · ajouter</p></Card>}
-      {finance && <Card onClick={() => open('contract')}><p className="text-body font-bold">Contrat de stockage froid</p><p className="text-caption text-text-muted">Tarif palette / jour pour un locataire</p></Card>}
+
       {profile.role === 'admin' && <Card onClick={() => open('users')}><p className="text-body font-bold">Utilisateurs et rôles</p><p className="text-caption text-text-muted">{users.length} compte(s)</p></Card>}
       <Button variant="ghost" className="w-full" onClick={onSignOut}>Se déconnecter</Button>
       <ErrorNote error={form ? null : error} />
@@ -110,12 +107,12 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
         <NotificationSettings profile={profile} onChange={onProfileChange} />
       </Sheet>
 
-      <Sheet open={form === 'depot'} title="Nouveau dépôt" onClose={() => setForm(null)}>
-        <Field label="Code (ex. ALM)"><Input value={v.code ?? ''} onChange={set('code')} /></Field>
-        <Field label="Nom"><Input value={v.name ?? ''} onChange={set('name')} placeholder="Hub froid Almadies" /></Field>
+      <Sheet open={form === 'depot'} title="Nouvel entrepôt" onClose={() => setForm(null)}>
+        <Field label="Code (ex. ALM, SOD)"><Input value={v.code ?? ''} onChange={set('code')} /></Field>
+        <Field label="Nom"><Input value={v.name ?? ''} onChange={set('name')} placeholder="Entrepôt Almadies" /></Field>
         <Field label="Type"><Select options={[{ value: 'frozen', label: 'Congelé' }, { value: 'chilled', label: 'Frais' }, { value: 'dry', label: 'Sec' }, { value: 'mixed', label: 'Mixte' }]}
           value={v.type ?? 'frozen'} onChange={set('type')} /></Field>
-        <Field label="Capacité (palettes)"><Input inputMode="numeric" value={v.capacity ?? ''} onChange={set('capacity')} /></Field>
+        <Field label="Adresse / quartier"><Input value={v.address ?? ''} onChange={set('address')} placeholder="Almadies, Sodida…" /></Field>
         <ErrorNote error={error} />
         <Button className="w-full" disabled={busy || !v.code || !v.name} onClick={save}>Ajouter</Button>
       </Sheet>
@@ -150,17 +147,8 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
         <Button className="w-full" disabled={busy || !v.name} onClick={save}>Ajouter</Button>
       </Sheet>
 
-      <Sheet open={form === 'contract'} title="Contrat de stockage" onClose={() => setForm(null)}>
-        <Field label="Client"><Select options={clients.map((c) => ({ value: c.id, label: c.name }))} value={v.client ?? ''} onChange={set('client')} /></Field>
-        {depots.length > 1 && <Field label="Dépôt"><Select options={depots.map((d) => ({ value: d.id, label: d.code }))} value={v.depot ?? ''} onChange={set('depot')} /></Field>}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Tarif / palette / jour"><Input inputMode="numeric" value={v.rate ?? ''} onChange={set('rate')} /></Field>
-          <Field label="Minimum mensuel"><Input inputMode="numeric" value={v.min ?? ''} onChange={set('min')} placeholder="0" /></Field>
-        </div>
-        <Field label="Début"><Input type="date" value={v.start ?? ''} onChange={set('start')} /></Field>
-        {Number(v.rate) > 0 && <p className="text-caption text-text-secondary">Ex. 10 palettes pendant 30 jours = {fcfa(Number(v.rate) * 300)}</p>}
-        <ErrorNote error={error} />
-        <Button className="w-full" disabled={busy || !v.client || !Number(v.rate)} onClick={save}>Créer le contrat</Button>
+      <Sheet open={form === 'room'} title="Nouvelle chambre froide" onClose={() => setForm(null)}>
+        <RoomForm depots={depots} onDone={(m) => { setDone(m); setForm(null); reloadRooms(); }} />
       </Sheet>
 
       <Sheet open={form === 'users'} title="Utilisateurs" onClose={() => setForm(null)}>

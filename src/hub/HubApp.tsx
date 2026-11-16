@@ -77,7 +77,7 @@ export default function HubApp() {
         </div>
         {tab === 'stock' && <Stock profile={profile} />}
         {tab === 'creances' && finance && <Receivables />}
-        {tab === 'operations' && <Operations />}
+        {tab === 'operations' && <Operations profile={profile} />}
         {tab === 'reglages' && <Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} />}
 
         <nav className="absolute bottom-0 inset-x-0 h-20 bg-surface-card/90 backdrop-blur-xl border-t border-border-default flex justify-around items-center px-2 pb-4 z-[180]">

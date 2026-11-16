@@ -70,10 +70,14 @@ export function briefingText(b: Briefing): string {
   } else {
     lines.push("✅ Rien d'urgent aujourd'hui.");
   }
-  if ((b.storage_tenants ?? []).length) {
+  const full = (b.rooms ?? []).filter((r: Briefing) => r.fill_pct != null && r.fill_pct >= 80 && r.status !== "louee");
+  if (full.length) {
     lines.push("");
-    lines.push("🧊 Stockage tiers : " +
-      b.storage_tenants.map((t: Briefing) => `${t.client} ${t.pallets} pal.`).join(", "));
+    lines.push("🧊 Chambres chargées : " + full.map((r: Briefing) => `${r.room} (${r.depot}) ${r.fill_pct} %`).join(", "));
+  }
+  if ((b.rented_rooms ?? []).length) {
+    lines.push("🔑 Chambres louées : " + b.rented_rooms.map((r: Briefing) =>
+      `${r.room} → ${r.client}${r.end_date ? ` (fin ${new Date(r.end_date).toLocaleDateString("fr-FR")})` : ""}`).join(", "));
   }
   return lines.join("\n");
 }

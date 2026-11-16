@@ -12,7 +12,7 @@ export interface Task {
 
 const KIND_LABEL: Record<string, string> = {
   rupture: 'Rupture', reappro: 'Réappro', fefo: 'FEFO', creance: 'Impayé', credit: 'Crédit',
-  anomalie: 'Contrôle', document: 'Document',
+  anomalie: 'Contrôle', document: 'Document', chambre: 'Chambre', location: 'Location',
 };
 const STATUS_LABEL: Record<string, string> = { validee: 'Validé', refusee: 'Refusé', resolue: 'Résolu', echec: 'Échec' };
 

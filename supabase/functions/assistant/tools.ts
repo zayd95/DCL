@@ -25,10 +25,10 @@ export const readTools = [
   },
   {
     name: "stock_lots",
-    description: "Détail par lot et par dépôt (FEFO) : quantité, date d'expiration, statut FEFO, conteneur, fournisseur, propriétaire (stock tiers).",
+    description: "Détail par lot (FEFO) : entrepôt, chambre froide, quantité, date d'expiration, statut FEFO, conteneur, fournisseur, propriétaire (stock tiers).",
     parameters: obj({
       produit: { ...S, description: "Nom ou SKU partiel (optionnel)" },
-      depot: { ...S, description: "Code dépôt (optionnel)" },
+      depot: { ...S, description: "Code entrepôt (optionnel)" },
       statut_fefo: { ...S, description: "EXPIRE | CRITIQUE | ATTENTION | OK (optionnel)" },
     }),
   },
@@ -47,7 +47,7 @@ export const readTools = [
   },
   {
     name: "briefing",
-    description: "Synthèse complète du jour : stock, ventes d'hier, créances, lots à écouler, réappro, stockage tiers.",
+    description: "Synthèse complète du jour : stock, ventes d'hier, créances, lots à écouler, réappro, chambres chargées et louées.",
     parameters: obj({}),
   },
   {
@@ -60,18 +60,23 @@ export const readTools = [
     description: "Liste des clients (nom, téléphone, type, limite de crédit, délai de paiement).",
     parameters: obj({ recherche: { ...S, description: "Nom partiel (optionnel)" } }),
   },
+  {
+    name: "chambres",
+    description: "Chambres froides par entrepôt (Almadies, Sodida…) : capacité, remplissage, produits stockés, statut libre / stock ODS / louée, locataire, loyer, fin de location.",
+    parameters: obj({ entrepot: { ...S, description: "Code ou nom d'entrepôt (optionnel)" } }),
+  },
 ];
 
 export const writeTools = [
   {
     name: "sortie_vente",
-    description: "Sortie de stock pour un client selon FEFO + facture automatique. Refuse les lots expirés et contrôle la limite de crédit.",
+    description: "Sortie de stock pour un client selon FEFO + facture automatique. Refuse les lots expirés, les prix sous le coût de revient et le dépassement de crédit.",
     parameters: obj({
       produit: S, quantite: N, client: S,
       prix_unitaire_fcfa: { ...I, description: "Si absent : prix par défaut du produit" },
       depot: { ...S, description: "Optionnel" },
       delai_paiement_jours: { ...I, description: "Optionnel, sinon conditions du client" },
-      forcer_credit: { ...B, description: "Dépasser la limite de crédit (manager seulement)" },
+      forcer_credit: { ...B, description: "Dérogation manager (crédit ou prix sous le coût)" },
       note: S,
     }, ["produit", "quantite", "client"]),
   },
@@ -91,19 +96,19 @@ export const writeTools = [
   },
   {
     name: "reception_lot",
-    description: "Réception d'un lot au dépôt (entrée de stock).",
+    description: "Réception d'un lot dans un entrepôt et une chambre froide (entrée de stock).",
     parameters: obj({
       produit: S, quantite: N, numero_lot: S, depot: S,
       date_expiration: { ...S, description: "AAAA-MM-JJ" },
       cout_unitaire: N, devise: { ...S, description: "XOF | EUR | USD" },
       taux_change_xof: { ...N, description: "Obligatoire si USD" },
-      fournisseur: S, conteneur: S, chambre: S,
-      client_proprietaire: { ...S, description: "Si la marchandise appartient à un client (stockage tiers)" },
+      fournisseur: S, conteneur: S, chambre: { ...S, description: "Chambre froide où ranger le lot (code ou nom)" },
+      client_proprietaire: { ...S, description: "Si la marchandise appartient à un client (chambre louée)" },
     }, ["produit", "quantite", "numero_lot"]),
   },
   {
     name: "transfert",
-    description: "Transfert de stock entre deux dépôts (FEFO).",
+    description: "Transfert de stock entre deux entrepôts (FEFO).",
     parameters: obj({ produit: S, quantite: N, depot_depart: S, depot_arrivee: S },
       ["produit", "quantite", "depot_depart", "depot_arrivee"]),
   },
@@ -125,9 +130,19 @@ export const writeTools = [
     }, ["nom"]),
   },
   {
-    name: "palettes_stockage",
-    description: "Entrée (+) ou sortie (−) de palettes d'un client locataire de froid.",
-    parameters: obj({ client: S, palettes: I, note: S }, ["client", "palettes"]),
+    name: "louer_chambre",
+    description: "Loue une chambre froide ENTIÈRE et vide à un client, au mois (loyer mensuel) ou au forfait (prix total, date de fin obligatoire). Électricité à la charge du locataire par défaut.",
+    parameters: obj({
+      client: S, chambre: { ...S, description: "Code ou nom de la chambre" }, entrepot: S,
+      facturation: { ...S, description: "mensuel | forfait" }, prix_fcfa: I,
+      debut: { ...S, description: "AAAA-MM-JJ" }, fin: { ...S, description: "AAAA-MM-JJ" },
+      electricite_locataire: B, caution_fcfa: I,
+    }, ["client", "chambre", "facturation", "prix_fcfa"]),
+  },
+  {
+    name: "deplacer_lot",
+    description: "Range un lot dans une autre chambre froide du même entrepôt.",
+    parameters: obj({ produit: S, numero_lot: S, chambre: S, entrepot: S }, ["produit", "numero_lot", "chambre"]),
   },
 ];
 
@@ -148,7 +163,7 @@ export async function runReadTool(db: SupabaseClient, name: string, a: Args): Pr
     }
     case "stock_lots": {
       let q = db.from("v_stock_lots").select(
-        "sku,product_name,depot_code,lot_number,quantity,unit_type,weight_kg,value_xof,expiry_date,days_to_expiry,fefo_status,container_no,supplier,owner_client",
+        "sku,product_name,depot_code,room_name,lot_number,quantity,unit_type,weight_kg,value_xof,expiry_date,days_to_expiry,fefo_status,container_no,supplier,owner_client",
       ).order("expiry_date", { ascending: true, nullsFirst: false });
       if (a.produit) q = q.or(`product_name.ilike.${orLike(a.produit)},sku.ilike.${orLike(a.produit)}`);
       if (a.depot) q = q.ilike("depot_code", a.depot);
@@ -170,6 +185,13 @@ export async function runReadTool(db: SupabaseClient, name: string, a: Args): Pr
     case "alertes":
       return unwrap(await db.from("alerts").select("level,kind,title,body,created_at").is("read_at", null)
         .order("created_at", { ascending: false }).limit(30));
+    case "chambres": {
+      let q = db.from("v_storage_rooms").select(
+        "depot_name,depot_code,room_code,room_name,kind,categories,capacity_tonnes,capacity_cartons,used_tonnes,used_cartons,fill_pct,products,status,tenant,billing,price_xof,start_date,end_date,electricity_by_tenant",
+      ).order("depot_code").order("room_code");
+      if (a.entrepot) q = q.or(`depot_code.ilike.${orLike(a.entrepot)},depot_name.ilike.${orLike(a.entrepot)}`);
+      return unwrap(await q);
+    }
     case "clients": {
       let q = db.from("clients").select("name,phone,type,credit_limit_xof,payment_terms_days").eq("active", true);
       if (a.recherche) q = q.ilike("name", like(a.recherche));
@@ -186,15 +208,15 @@ export function summarizeWrite(name: string, a: Args): string {
     case "sortie_vente":
       return `Sortie FEFO de ${qty(a.quantite)} × ${a.produit} pour ${a.client}` +
         (a.prix_unitaire_fcfa ? ` à ${fcfa(a.prix_unitaire_fcfa)}/unité (total ${fcfa(a.quantite * a.prix_unitaire_fcfa)})` : " au prix par défaut") +
-        (a.depot ? ` depuis ${a.depot}` : "") + ", avec facture" + (a.forcer_credit ? " — dépassement de crédit forcé" : "");
+        (a.depot ? ` depuis ${a.depot}` : "") + ", avec facture" + (a.forcer_credit ? " — dérogation manager" : "");
     case "encaissement_client":
       return `Encaissement de ${fcfa(a.montant_fcfa)} de ${a.client}${a.mode ? ` (${a.mode})` : ""}, imputé sur ses plus anciennes factures`;
     case "encaissement_facture":
       return `Encaissement de ${fcfa(a.montant_fcfa)} sur la facture ${a.numero_facture}`;
     case "reception_lot":
       return `Réception de ${qty(a.quantite)} × ${a.produit}, lot ${a.numero_lot}` +
-        (a.date_expiration ? `, expire le ${a.date_expiration}` : "") + (a.depot ? ` au dépôt ${a.depot}` : "") +
-        (a.client_proprietaire ? ` (marchandise de ${a.client_proprietaire})` : "");
+        (a.date_expiration ? `, expire le ${a.date_expiration}` : "") + (a.depot ? ` à ${a.depot}` : "") +
+        (a.chambre ? `, chambre ${a.chambre}` : "") + (a.client_proprietaire ? ` (marchandise de ${a.client_proprietaire})` : "");
     case "transfert":
       return `Transfert de ${qty(a.quantite)} × ${a.produit} de ${a.depot_depart} vers ${a.depot_arrivee}`;
     case "inventaire":
@@ -202,8 +224,12 @@ export function summarizeWrite(name: string, a: Args): string {
     case "creer_client":
       return `Création du client ${a.nom}` + (a.limite_credit_fcfa ? `, limite de crédit ${fcfa(a.limite_credit_fcfa)}` : "") +
         (a.delai_paiement_jours ? `, paiement à ${a.delai_paiement_jours} j` : "");
-    case "palettes_stockage":
-      return `${a.palettes > 0 ? "Entrée" : "Sortie"} de ${Math.abs(a.palettes)} palette(s) pour ${a.client}`;
+    case "louer_chambre":
+      return `Location de la chambre ${a.chambre}${a.entrepot ? ` (${a.entrepot})` : ""} à ${a.client} : ` +
+        (a.facturation === "forfait" ? `forfait ${fcfa(a.prix_fcfa)} jusqu'au ${a.fin}` : `${fcfa(a.prix_fcfa)} par mois`) +
+        `${a.debut ? `, à partir du ${a.debut}` : ""}, électricité ${a.electricite_locataire === false ? "incluse" : "à la charge du locataire"}`;
+    case "deplacer_lot":
+      return `Déplacer le lot ${a.numero_lot} (${a.produit}) vers la chambre ${a.chambre}`;
   }
   return name;
 }
@@ -246,8 +272,13 @@ export function runWriteTool(db: SupabaseClient, name: string, a: Args): Promise
         p_name: a.nom, p_phone: a.telephone, p_type: a.type,
         p_credit_limit_xof: a.limite_credit_fcfa, p_payment_terms_days: a.delai_paiement_jours,
       });
-    case "palettes_stockage":
-      return call("storage_pallets", { p_client: a.client, p_pallets: a.palettes, p_note: a.note });
+    case "louer_chambre":
+      return call("rent_room", {
+        p_client: a.client, p_room: a.chambre, p_depot: a.entrepot, p_billing: a.facturation, p_price_xof: a.prix_fcfa,
+        p_start: a.debut, p_end: a.fin, p_electricity_by_tenant: a.electricite_locataire ?? true, p_deposit_xof: a.caution_fcfa,
+      });
+    case "deplacer_lot":
+      return call("move_lot", { p_product: a.produit, p_lot_number: a.numero_lot, p_room: a.chambre, p_depot: a.entrepot });
   }
   throw new Error(`Outil inconnu : ${name}`);
 }
@@ -262,7 +293,7 @@ export function describeResult(name: string, r: Args): string {
     case "encaissement_facture":
       return `✅ Facture ${r.invoice_number} : payé ${fcfa(r.paid_xof)}, reste ${fcfa(r.balance_xof)} (${r.status}).`;
     case "reception_lot":
-      return `✅ Lot ${r.lot_number} reçu : ${qty(r.quantity)} × ${r.product} au dépôt ${r.depot}.`;
+      return `✅ Lot ${r.lot_number} reçu : ${qty(r.quantity)} × ${r.product} à ${r.depot}${r.room ? `, chambre ${r.room}` : ""}.`;
     case "transfert":
       return `✅ Transfert ${r.from} → ${r.to} : ${qty(r.quantity)} × ${r.product}.`;
     case "inventaire":
@@ -270,8 +301,11 @@ export function describeResult(name: string, r: Args): string {
         `✅ ${r.product} lot ${r.lot_number} : ${qty(r.previous)} → ${qty(r.counted)} (impact ${fcfa(r.value_impact_xof)}).`;
     case "creer_client":
       return `✅ Client ${r.name} créé.`;
-    case "palettes_stockage":
-      return `✅ ${r.client} a maintenant ${r.pallets_now} palette(s) en stock.`;
+    case "louer_chambre":
+      return `✅ Chambre ${r.room} louée à ${r.client}.` +
+        ((r.invoices ?? [])[0] ? ` Facture ${r.invoices[0].invoice_number} : ${fcfa(r.invoices[0].total_xof)}.` : "");
+    case "deplacer_lot":
+      return `✅ Lot ${r.lot_number} rangé dans ${r.room}.`;
   }
   return "✅ Fait.";
 }
