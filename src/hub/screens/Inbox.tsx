@@ -77,7 +77,7 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
       <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) scan(f); e.target.value = ''; }} />
       <button onClick={() => fileRef.current?.click()}
-        className="w-full flex items-center justify-center gap-2 bg-brand text-white rounded-2xl py-4 text-body font-bold active:scale-[0.99]">
+        className="w-full flex items-center justify-center gap-2 bg-brand/10 text-brand rounded-2xl py-4 text-body font-semibold active:scale-[0.99]">
         <Camera size={20} /> Scanner une facture ou un reçu
       </button>
       {scanMsg && <p className="rounded-xl bg-status-info-bg text-status-info text-body p-3">{scanMsg}</p>}

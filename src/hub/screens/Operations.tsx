@@ -260,7 +260,7 @@ export function Operations({ profile }: { profile: Profile }) {
           {primary.map(({ key, label, icon: Icon }, i) => (
             <button key={key} onClick={() => openForm(key)}
               className={cx('rounded-2xl py-3.5 flex items-center justify-center gap-2 text-body font-semibold active:opacity-80 transition',
-                i === 0 ? 'bg-brand text-white' : 'bg-surface-card text-brand')}>
+                'bg-surface-card text-brand', i < 0 && '')}>
               <Icon size={18} />{label}
             </button>
           ))}
@@ -273,7 +273,7 @@ export function Operations({ profile }: { profile: Profile }) {
           {secondary.map(({ key, label, icon: Icon }, i) => (
             <button key={key} onClick={() => openForm(key)}
               className="w-full flex items-center gap-3 pl-4 active:bg-surface-subtle transition">
-              <span className="w-7 h-7 rounded-lg bg-brand text-white flex items-center justify-center shrink-0"><Icon size={15} /></span>
+              <span className="w-7 h-7 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0"><Icon size={15} /></span>
               <span className={cx('flex-1 flex items-center justify-between py-3 pr-4 text-left', i > 0 && 'border-t border-border-default')}>
                 <span className="text-body text-text-primary">{label}</span>
                 <ChevronRight size={18} className="text-text-muted" />
