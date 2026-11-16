@@ -1,23 +1,27 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Banknote, ClipboardCheck, DoorOpen, KeyRound, MoveRight,
-  UserPlus, AlertTriangle, ChevronRight, Camera, Sparkles, type LucideIcon,
+  UserPlus, AlertTriangle, ChevronRight, FilePen, Camera, Sparkles, type LucideIcon,
 } from 'lucide-react';
 import { supabase, rpc, type Profile, type Role, canSeeFinance, uploadDocument } from '../supabase';
 import { cx } from '../cx';
 import { useRooms } from './Rooms';
-import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, fcfa, qty } from '../ui';
+import type { PendingOp, OpForm } from '../nav';
+import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, fcfa, qty, useDocPicker } from '../ui';
 
 interface Product { id: string; sku: string; name: string; unit_type: string; default_price_xof: number | null }
 interface Named { id: string; name: string; code?: string }
-interface LotRow { sku: string; product_name: string; lot_number: string; depot_code: string; room_name: string | null; quantity: number; unit_type: string }
+interface LotRow {
+  lot_id: string; sku: string; product_name: string; lot_number: string; depot_code: string; room_name: string | null;
+  quantity: number; unit_type: string; expiry_date: string | null; cost_unit_xof: number | null;
+}
 interface JournalItem { at: string; kind: string; title: string; detail: string | null; amount_xof: number | null; by: string | null }
 interface Day {
   finance: boolean; sales_count: number; sales_xof: number | null; margin_xof: number | null; payments_xof: number | null;
   receptions_count: number; qty_in: number; qty_out: number; journal: JournalItem[];
 }
 
-type Form = 'vente' | 'reception' | 'encaissement' | 'transfert' | 'deplacer' | 'inventaire' | 'client' | 'location' | 'fin_location';
+type Form = OpForm;
 
 const ACTIONS: { key: Form; label: string; icon: LucideIcon; roles: Role[]; color?: string }[] = [
   { key: 'vente', label: 'Vente', icon: ArrowUpFromLine, roles: ['magasinier', 'manager', 'cfo', 'admin'] },
@@ -29,6 +33,7 @@ const ACTIONS: { key: Form; label: string; icon: LucideIcon; roles: Role[]; colo
   { key: 'client', label: 'Nouveau client', icon: UserPlus, roles: ['manager', 'cfo', 'admin'], color: '#AF52DE' },
   { key: 'location', label: 'Louer une chambre', icon: KeyRound, roles: ['manager', 'cfo', 'admin'], color: '#1a237e' },
   { key: 'fin_location', label: 'Fin de location', icon: DoorOpen, roles: ['manager', 'cfo', 'admin'], color: '#FF3B30' },
+  { key: 'completer', label: 'Compléter un lot (DLC, coût)', icon: FilePen, roles: ['manager', 'cfo', 'admin'], color: '#5856D6' },
 ];
 
 const KIND: Record<string, { icon: LucideIcon; color: string }> = {
@@ -52,7 +57,7 @@ const isoDay = (offset: number) => {
 };
 const hhmm = (s: string) => new Date(s).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Dakar' });
 
-export function Operations({ profile }: { profile: Profile }) {
+export function Operations({ profile, pending }: { profile: Profile; pending?: PendingOp | null }) {
   const finance = canSeeFinance(profile.role);
   const { rooms, reload: reloadRooms } = useRooms();
   const [dayOffset, setDayOffset] = useState(0);
@@ -66,8 +71,8 @@ export function Operations({ profile }: { profile: Profile }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const docRef = useRef<HTMLInputElement>(null);
 
+  const docPicker = useDocPicker((f) => scanDoc(f));
   const scanDoc = async (file: File) => {
     setBusy(true); setError(null);
     try {
@@ -100,7 +105,7 @@ export function Operations({ profile }: { profile: Profile }) {
         supabase.from('products').select('id,sku,name,unit_type,default_price_xof').eq('active', true).order('name'),
         supabase.from('clients').select('id,name').eq('active', true).order('name'),
         supabase.from('depots').select('id,name,code').eq('active', true).order('code'),
-        supabase.from('v_stock_lots').select('sku,product_name,lot_number,depot_code,room_name,quantity,unit_type')
+        supabase.from('v_stock_lots').select('lot_id,sku,product_name,lot_number,depot_code,room_name,quantity,unit_type,expiry_date,cost_unit_xof')
           .gt('quantity', 0).order('product_name').limit(300),
       ]);
       setProducts((p.data ?? []) as Product[]);
@@ -110,11 +115,25 @@ export function Operations({ profile }: { profile: Profile }) {
     })();
   }, [form]);
 
+  // Opération ouverte depuis un autre écran (ex. « Réception ici » sur une chambre)
+  useEffect(() => {
+    if (!pending) return;
+    setForm(pending.form); setV(pending.preset); setError(null); setDone(null);
+  }, [pending?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
   const openForm = (f: Form) => { setForm(f); setV({}); setError(null); setDone(null); };
   const product = products.find((p) => p.sku === v.product);
   const depotCode = v.depot || (depots.length === 1 ? depots[0].code : '');
-  const lot = lots.find((l) => `${l.sku}|${l.lot_number}|${l.depot_code}` === v.lot_key);
+  const lot = lots.find((l) => `${l.sku}|${l.lot_number}|${l.depot_code}` === v.lot_key)
+    ?? (v.lot_id ? lots.find((l) => l.lot_id === v.lot_id) : undefined);
+  // Lot pré-sélectionné depuis « À traiter » : on remplit la liste dès que les lots sont chargés
+  useEffect(() => {
+    if (v.lot_id && !v.lot_key) {
+      const l = lots.find((x) => x.lot_id === v.lot_id && (form !== 'deplacer' || !x.room_name)) ?? lots.find((x) => x.lot_id === v.lot_id);
+      if (l) setV((cur) => ({ ...cur, lot_key: `${l.sku}|${l.lot_number}|${l.depot_code}` }));
+    }
+  }, [lots, v.lot_id]); // eslint-disable-line react-hooks/exhaustive-deps
   const n = (s?: string) => (s ? Number(s.replace(',', '.')) : undefined);
   const int = (s?: string) => (s ? Math.round(Number(s.replace(/\s/g, ''))) : undefined);
 
@@ -188,6 +207,14 @@ export function Operations({ profile }: { profile: Profile }) {
           msg = `Chambre ${room?.room_name} louée à ${v.client}.` + (inv ? ` Facture ${inv.invoice_number} : ${fcfa(inv.total_xof)}.` : '');
           break;
         }
+        case 'completer': {
+          await rpc('update_lot_info', {
+            p_product: lot?.sku, p_lot_number: lot?.lot_number, p_expiry_date: v.expiry || undefined,
+            p_cost_unit: n(v.cost), p_cost_currency: v.cost ? (v.currency || 'XOF') : undefined, p_fx_rate_to_xof: n(v.fx),
+          });
+          msg = `Lot ${lot?.lot_number} complété.`;
+          break;
+        }
         case 'fin_location': {
           const room = rooms.find((r) => r.contract_id === v.contract);
           await rpc('end_rental', { p_contract: v.contract, p_end: v.end || undefined });
@@ -213,7 +240,14 @@ export function Operations({ profile }: { profile: Profile }) {
   }));
   const roomLabel = (r: (typeof rooms)[number]) => `${r.depot_code} · ${r.room_name}${r.fill_pct != null ? ` (${r.fill_pct} %)` : ''}`;
   const receptionRooms = rooms.filter((r) => r.status !== 'louee' || (v.owner && r.tenant === v.owner)).map((r) => ({ value: r.room_id, label: roomLabel(r) }));
-  const moveRooms = rooms.filter((r) => lot && r.depot_code === lot.depot_code && r.room_name !== lot.room_name)
+  const presetRoom = rooms.find((r) => r.room_id === v.room);
+  const lotOptsMove = (form === 'deplacer' && presetRoom
+    ? lots.filter((l) => l.depot_code === presetRoom.depot_code && l.room_name !== presetRoom.room_name) : lots)
+    .map((l) => ({
+      value: `${l.sku}|${l.lot_number}|${l.depot_code}`,
+      label: `${l.product_name} · lot ${l.lot_number} · ${qty(l.quantity)} ${l.unit_type} · ${l.depot_code}${l.room_name ? ` · ${l.room_name}` : ' · sans chambre'}`,
+    }));
+  const moveRooms = rooms.filter((r) => (lot ? r.depot_code === lot.depot_code && r.room_name !== lot.room_name : r.room_id === v.room))
     .map((r) => ({ value: r.room_id, label: roomLabel(r) }));
   const freeRooms = rooms.filter((r) => r.status === 'libre')
     .map((r) => ({ value: r.room_id, label: `${r.depot_code} · ${r.room_name}${r.capacity_tonnes ? ` · ${r.capacity_tonnes} t` : ''}` }));
@@ -325,6 +359,7 @@ export function Operations({ profile }: { profile: Profile }) {
           </div>
         )}
 
+      {docPicker.element}
       <Sheet open={form !== null} title={title} onClose={() => setForm(null)}>
         {form === 'vente' && <>
           <p className="flex gap-2 rounded-xl bg-surface-subtle px-3 py-2 text-caption text-text-secondary">
@@ -343,13 +378,11 @@ export function Operations({ profile }: { profile: Profile }) {
         </>}
 
         {form === 'reception' && <>
-          <input ref={docRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) scanDoc(f); e.target.value = ''; }} />
-          <button onClick={() => docRef.current?.click()} disabled={busy}
+          <button onClick={docPicker.open} disabled={busy}
             className="w-full flex items-center gap-3 rounded-2xl bg-surface-subtle px-4 py-3 text-left">
             <Camera size={20} className="text-brand shrink-0" />
             <span>
-              <span className="block text-body font-semibold text-text-primary">Photographier le bon de livraison</span>
+              <span className="block text-body font-semibold text-text-primary">Photo ou fichier du bon de livraison</span>
               <span className="block text-caption text-text-muted">DEPOTEK remplit tout : produits, quantités, lots, dates</span>
             </span>
           </button>
@@ -397,7 +430,7 @@ export function Operations({ profile }: { profile: Profile }) {
         </>}
 
         {form === 'deplacer' && <>
-          <Field label="Lot"><Select options={lotOpts} value={v.lot_key ?? ''} onChange={set('lot_key')} /></Field>
+          <Field label="Lot"><Select options={lotOptsMove} value={v.lot_key ?? ''} onChange={set('lot_key')} /></Field>
           <Field label="Nouvelle chambre"><Select options={moveRooms} value={v.room ?? ''} onChange={set('room')} /></Field>
         </>}
 
@@ -451,6 +484,20 @@ export function Operations({ profile }: { profile: Profile }) {
           </p>
         </>}
 
+        {form === 'completer' && <>
+          <Field label="Lot"><Select options={lotOpts} value={v.lot_key ?? ''} onChange={set('lot_key')} /></Field>
+          {lot && <p className="text-caption text-text-muted">
+            DLC : {lot.expiry_date ?? 'non renseignée'} · Coût : {lot.cost_unit_xof != null ? `${fcfa(lot.cost_unit_xof)} / ${lot.unit_type}` : 'non renseigné'}</p>}
+          <Field label="Date limite (DLC)"><Input type="date" value={v.expiry ?? ''} onChange={set('expiry')} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Coût par carton"><Input inputMode="decimal" value={v.cost ?? ''} onChange={set('cost')} /></Field>
+            <Field label="Devise"><Select options={[{ value: 'XOF', label: 'FCFA' }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }]}
+              value={v.currency ?? 'XOF'} onChange={set('currency')} /></Field>
+          </div>
+          {v.currency === 'USD' && <Field label="Taux USD → FCFA"><Input inputMode="decimal" value={v.fx ?? ''} onChange={set('fx')} /></Field>}
+          <p className="text-caption text-text-muted">L’euro est converti au taux fixe 655,957. Seule la fiche du lot change, pas le grand livre.</p>
+        </>}
+
         {form === 'fin_location' && <>
           <Field label="Chambre louée"><Select options={rentedRooms} value={v.contract ?? ''} onChange={set('contract')} /></Field>
           {rentedRooms.length === 0 && <p className="text-caption text-text-muted">Aucune chambre louée en ce moment.</p>}
@@ -476,6 +523,7 @@ function ready(form: Form | null, v: Record<string, string>): boolean {
     case 'client': return !!v.name?.trim();
     case 'location': return !!v.client && !!v.room && num(v.price) && (v.billing !== 'forfait' || !!v.end);
     case 'fin_location': return !!v.contract;
+    case 'completer': return !!v.lot_key && (!!v.expiry || Number((v.cost ?? '').replace(',', '.')) > 0);
   }
   return false;
 }

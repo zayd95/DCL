@@ -112,3 +112,38 @@ export function ErrorNote({ error }: { error?: string | null }) {
   if (!error) return null;
   return <p className="rounded-xl bg-status-danger-bg text-status-danger text-body p-3">{error}</p>;
 }
+
+/** Choix d'un document : prendre une photo OU choisir un fichier (photo, PDF) déjà sur le téléphone. */
+export function useDocPicker(onFile: (f: File) => void) {
+  const camRef = React.useRef<HTMLInputElement>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [open, setOpen] = React.useState(false);
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    setOpen(false);
+    if (f) onFile(f);
+  };
+  const element = (
+    <>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
+      <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={pick} />
+      {open && (
+        <div className="fixed inset-0 z-[700] bg-black/40 flex items-end justify-center" onClick={() => setOpen(false)}>
+          <div className="w-full max-w-[480px] p-3 pb-8 space-y-2" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-surface-card rounded-2xl overflow-hidden">
+              <button onClick={() => camRef.current?.click()} className="w-full py-4 text-body text-brand font-semibold border-b border-border-default">
+                Prendre une photo
+              </button>
+              <button onClick={() => fileRef.current?.click()} className="w-full py-4 text-body text-brand font-semibold">
+                Choisir un fichier ou une photo
+              </button>
+            </div>
+            <button onClick={() => setOpen(false)} className="w-full py-4 bg-surface-card rounded-2xl text-body font-bold text-text-primary">Annuler</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+  return { open: () => setOpen(true), element };
+}

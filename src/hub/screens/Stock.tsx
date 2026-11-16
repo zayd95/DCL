@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { supabase, rpc, type Profile, canSeeFinance } from '../supabase';
+import { supabase, rpc, type Profile, canSeeFinance, canManage } from '../supabase';
 import { Screen, Card, Badge, Empty, ErrorNote, Sheet, Field, Input, Select, Button, fcfa, qty, shortDate, fefoTone } from '../ui';
 import { RoomsView } from './Rooms';
 import { cx } from '../cx';
@@ -90,7 +90,7 @@ export function Stock({ profile }: { profile: Profile }) {
           </button>
         ))}
       </div>
-      {view === 'chambres' ? <RoomsView finance={finance} /> : <>
+      {view === 'chambres' ? <RoomsView finance={finance} manage={canManage(profile.role)} /> : <>
       <ErrorNote error={error} />
       {!loading && products.length === 0 && <Empty>Aucun produit. Ajoutez-en dans Réglages.</Empty>}
       {products.map((p) => (
