@@ -4,11 +4,15 @@ import { Screen, Card, Sheet, Field, Input, Select, Button, ErrorNote, Badge, fc
 import { NotificationSettings } from './Notifications';
 import { RoomForm, useRooms } from './Rooms';
 
-type Form = 'product' | 'client' | 'depot' | 'room' | 'users' | 'notifications' | null;
+type Form = 'product' | 'client' | 'depot' | 'room' | 'users' | 'notifications' | 'demo' | null;
 
 const ROLE_LABEL: Record<string, string> = { magasinier: 'Magasinier', manager: 'Manager', cfo: 'Finance', admin: 'Admin' };
 
-export function Settings({ profile, onSignOut, onProfileChange }: { profile: Profile; onSignOut: () => void; onProfileChange: () => void }) {
+export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
+  profile: Profile; onSignOut: () => void; onProfileChange: () => void; onStartDemo?: () => void;
+}) {
+  const [demoInstalled, setDemoInstalled] = useState(false);
+  useEffect(() => { rpc<{ installed: boolean }>('demo_status', {}).then((r) => setDemoInstalled(r.installed)).catch(() => undefined); }, []);
   const [form, setForm] = useState<Form>(null);
   const [v, setV] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -100,8 +104,35 @@ export function Settings({ profile, onSignOut, onProfileChange }: { profile: Pro
       {finance && <Card onClick={() => open('client')}><p className="text-body font-bold">Clients</p><p className="text-caption text-text-muted">{counts.clients} · ajouter</p></Card>}
 
       {profile.role === 'admin' && <Card onClick={() => open('users')}><p className="text-body font-bold">Utilisateurs et rôles</p><p className="text-caption text-text-muted">{users.length} compte(s)</p></Card>}
+      {profile.role === 'admin' && onStartDemo && (
+        <Card onClick={() => open('demo')}>
+          <p className="text-body font-bold">Démo en direct</p>
+          <p className="text-caption text-text-muted">{demoInstalled ? 'Données de démo installées · relancer ou supprimer' : 'Voir DEPOTEK travailler sur une journée type'}</p>
+        </Card>
+      )}
       <Button variant="ghost" className="w-full" onClick={onSignOut}>Se déconnecter</Button>
       <ErrorNote error={form ? null : error} />
+
+      <Sheet open={form === 'demo'} title="Démo en direct" onClose={() => setForm(null)}>
+        <p className="text-body text-text-secondary">
+          DEPOTEK joue une journée type avec ses vraies règles : arrivée d’un conteneur, vente FEFO, vente à perte et dépassement
+          de crédit bloqués, encaissement Wave, perte, chambre qui se remplit, location d’une chambre entière.
+          Vous voyez le journal, les chambres, les créances et le fil « À traiter » réagir en direct.
+        </p>
+        <p className="text-caption text-text-muted">
+          Tout est marqué « démo » (entrepôts Almadies/Sodida démo, clients « (démo) ») et se supprime en un geste,
+          sans toucher à vos vraies données ni à la numérotation des factures.
+        </p>
+        <Button className="w-full" onClick={() => { setForm(null); onStartDemo?.(); }}>Lancer la démo en direct</Button>
+        {demoInstalled && (
+          <Button variant="ghost" className="w-full" disabled={busy} onClick={async () => {
+            setBusy(true); setError(null);
+            try { await rpc('demo_purge', {}); setDemoInstalled(false); setForm(null); setDone('Données de démo supprimées.'); }
+            catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+          }}>Supprimer les données de démo</Button>
+        )}
+        <ErrorNote error={error} />
+      </Sheet>
 
       <Sheet open={form === 'notifications'} title="Notifications" onClose={() => setForm(null)}>
         <NotificationSettings profile={profile} onChange={onProfileChange} />

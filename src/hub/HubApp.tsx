@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { Bell, Box, Wallet, ArrowLeftRight, ChevronLeft } from 'lucide-react';
+import { Bell, Box, Wallet, ArrowLeftRight, ChevronLeft, X, Play } from 'lucide-react';
+import { DEMO_STEPS } from './demo';
 import { supabase, type Profile, canSeeFinance } from './supabase';
 import { cx as cn } from './cx';
 import { Login } from './screens/Login';
@@ -18,6 +19,25 @@ export default function HubApp() {
   const [tab, setTab] = useState<Tab>('accueil');
   const [openTasks, setOpenTasks] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [demo, setDemo] = useState<{ step: number; text: string; ok: boolean; done: boolean } | null>(null);
+  const demoStop = React.useRef(false);
+
+  const runDemo = async () => {
+    demoStop.current = false;
+    setSettingsOpen(false);
+    for (let i = 0; i < DEMO_STEPS.length; i++) {
+      if (demoStop.current) break;
+      const st = DEMO_STEPS[i];
+      setTab(st.tab);
+      setDemo({ step: i, text: 'En cours…', ok: true, done: false });
+      let text: string; let ok = true;
+      try { text = await st.run(); } catch (e) { text = (e as Error).message; ok = false; }
+      if (demoStop.current) break;
+      setDemo({ step: i, text, ok, done: i === DEMO_STEPS.length - 1 });
+      if (!ok && i === 0) return;
+      if (i < DEMO_STEPS.length - 1) await new Promise((r) => setTimeout(r, 5500));
+    }
+  };
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -86,7 +106,26 @@ export default function HubApp() {
               className="flex items-center gap-0.5 text-brand text-body px-3 pt-4 pb-1 self-start">
               <ChevronLeft size={22} /> Retour
             </button>
-            <div className="flex-1 min-h-0"><Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} /></div>
+            <div className="flex-1 min-h-0"><Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} onStartDemo={runDemo} /></div>
+          </div>
+        )}
+
+        {demo && (
+          <div className="absolute inset-x-3 bottom-24 z-[400] rounded-2xl bg-surface-card shadow-xl border border-border-default p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-micro font-semibold text-brand uppercase tracking-wide flex items-center gap-1">
+                <Play size={12} /> Démo · étape {demo.step + 1}/{DEMO_STEPS.length}
+              </p>
+              <button aria-label="Fermer la démo" onClick={() => { demoStop.current = true; setDemo(null); }} className="text-text-muted"><X size={18} /></button>
+            </div>
+            <p className="text-body font-semibold text-text-primary mt-1">{DEMO_STEPS[demo.step].title}</p>
+            <p className={cn('text-caption mt-0.5', demo.ok ? 'text-text-secondary' : 'text-status-danger')}>{demo.text}</p>
+            <div className="flex gap-1 mt-3">
+              {DEMO_STEPS.map((_, i) => (
+                <span key={i} className={cn('h-1 flex-1 rounded-full', i <= demo.step ? 'bg-brand' : 'bg-surface-subtle')} />
+              ))}
+            </div>
+            {demo.done && <p className="text-caption text-text-muted mt-2">Données de démo supprimables dans Réglages › Démo en direct.</p>}
           </div>
         )}
 
