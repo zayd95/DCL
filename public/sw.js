@@ -3,9 +3,10 @@
 // - Fichiers /assets/* (nom avec empreinte, immuables) : cache d'abord.
 // - Jamais d'interception des appels API (Supabase, Gemini…) : données toujours fraîches.
 const CACHE_NAME = 'depotek-v2';
+const BASE = new URL('./', self.location).pathname; // '/' ou '/DCL/' selon l'hébergement
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(['/', '/manifest.json'])));
+  event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll([BASE, BASE + 'manifest.json'])));
   self.skipWaiting();
 });
 
@@ -27,15 +28,15 @@ self.addEventListener('fetch', (event) => {
       fetch(req)
         .then((res) => {
           const copy = res.clone();
-          caches.open(CACHE_NAME).then((c) => c.put('/', copy));
+          caches.open(CACHE_NAME).then((c) => c.put(BASE, copy));
           return res;
         })
-        .catch(() => caches.match('/')),
+        .catch(() => caches.match(BASE)),
     );
     return;
   }
 
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.startsWith(BASE + 'assets/')) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         const copy = res.clone();

@@ -4,8 +4,8 @@ import './index.css';
 
 // Nouveau DEPOTEK (Supabase) par défaut.
 // L'ancienne app Firebase reste disponible avec VITE_LEGACY_FIREBASE=true (le temps de la transition).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const legacy = ((import.meta as any).env?.VITE_LEGACY_FIREBASE ?? '') === 'true';
+// Remplacé à la compilation : l'ancienne app n'est incluse dans le build que si demandée.
+const legacy = import.meta.env.VITE_LEGACY_FIREBASE === 'true';
 
 const Root = legacy ? lazy(() => import('./App')) : lazy(() => import('./hub/HubApp'));
 
@@ -19,9 +19,9 @@ createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => console.log('SW registration failed: ', err));
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((err) => console.log('SW registration failed: ', err));
     if (legacy) {
-      navigator.serviceWorker.register('/firebase-messaging-sw.js').catch((err) => console.log('FCM SW registration failed: ', err));
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}firebase-messaging-sw.js`).catch((err) => console.log('FCM SW registration failed: ', err));
     }
   });
 }

@@ -1,11 +1,10 @@
-
 {
-  "name": "Dakar Cold-Link OS",
-  "short_name": "ColdLink",
-  "start_url": "/",
+  "name": "DEPOTEK — Hub froid ODS",
+  "short_name": "DEPOTEK",
+  "start_url": "./",
   "display": "standalone",
-  "background_color": "#0A2540",
-  "theme_color": "#0A2540",
+  "background_color": "#0d1642",
+  "theme_color": "#1a237e",
   "icons": [
     {
       "src": "https://picsum.photos/seed/dakar-logistics/192/192",
@@ -17,5 +16,6 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "scope": "./"
 }
