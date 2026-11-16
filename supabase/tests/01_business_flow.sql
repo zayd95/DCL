@@ -332,3 +332,45 @@ do $$ declare r jsonb; begin
 end $$;
 reset role;
 select 'OPERATIONS OK' as resultat;
+
+-- ═══ Démo : installation, scénario, purge ═══════════════════════════════════
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$ declare r jsonb; n_real int; c_before int; begin
+  select count(*) into n_real from invoices;
+  select last into c_before from invoice_counters where kind = 'vente' and year = extract(year from current_date);
+  perform demo_seed();
+  assert (demo_status()->>'installed')::boolean, 'démo installée';
+  assert (select count(*) from v_storage_rooms where depot_code like '%-DEMO') = 6, 'chambres démo';
+  assert exists (select 1 from v_client_balances where client_name = 'Boucherie Ndiaye (démo)' and overdue_xof > 0), 'créance en retard';
+  r := operations_day(current_date - 1);
+  assert (r->>'sales_count')::int >= 4, 'historique hier : ' || r::text;
+  -- scénario en direct
+  perform receive_lot('DEMO-CUISSE', 800, 'CP-LIVE', 'ALM-DEMO', current_date + 240, null, 11200, 'XOF', null, null, null, null, 'CF2');
+  r := dispatch_fefo('DEMO-CUISSE', 60, 'Moussa Traders (démo)', 'ALM-DEMO', 15000, null, true, false, null);
+  assert r->'picks'->0->>'lot_number' = 'CP-0815', 'FEFO : le lot qui expire en premier sort d''abord';
+  begin perform dispatch_fefo('DEMO-FOIE', 10, 'Restaurant Le Lagon (démo)', 'ALM-DEMO', 15000, null, true, false, null);
+        assert false, 'vente à perte non bloquée';
+  exception when others then assert sqlerrm like 'VENTE BLOQUÉE%', sqlerrm; end;
+  begin perform dispatch_fefo('DEMO-HACHE', 300, 'Boucherie Ndiaye (démo)', 'ALM-DEMO', 22000, null, true, false, null);
+        assert false, 'crédit non bloqué';
+  exception when others then assert sqlerrm like 'VENTE BLOQUÉE%', sqlerrm; end;
+  perform record_client_payment('Boucherie Ndiaye (démo)', 1500000, 'wave', null);
+  perform adjust_stock('DEMO-THIOF', 'TH-1101', 2, 'Cartons abîmés (démo)', 'SOD-DEMO', true);
+  perform receive_lot('DEMO-FOIE', 400, 'FB-LIVE', 'ALM-DEMO', current_date + 200, null, 32, 'USD', 600, null, null, null, 'CF1');
+  assert (select fill_pct from v_storage_rooms where room_code = 'CF1' and depot_code = 'ALM-DEMO') >= 90, 'chambre pleine';
+  perform rent_room('Poissonnerie Soumbédioune (démo)', 'S2', 'mensuel', 400000, current_date, null, true, 400000, 'SOD-DEMO', null);
+  r := operations_day();
+  assert jsonb_array_length(r->'journal') >= 6, 'journal du jour : ' || r::text;
+  -- purge
+  perform demo_purge();
+  assert not (demo_status()->>'installed')::boolean;
+  assert (select count(*) from invoices) = n_real, 'factures réelles intactes';
+  assert (select count(*) from stock_movements m join depots d on d.id = m.depot_id where d.code like '%-DEMO') = 0;
+end $$;
+reset role;
+do $$ begin
+  assert coalesce((select last from invoice_counters where kind = 'vente' and year = extract(year from current_date)), 0)
+         = coalesce((select max(substring(number from '(\d+)$')::int) from invoices where kind = 'vente'), 0), 'numérotation sans trou';
+  assert not exists (select 1 from depots where demo) and not exists (select 1 from products where demo), 'purge complète';
+end $$;
+select 'DEMO OK' as resultat;
