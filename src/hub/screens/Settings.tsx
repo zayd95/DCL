@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, rpc, type Profile, canManage, canSeeFinance } from '../supabase';
 import { Screen, Card, Sheet, Field, Input, Select, Button, ErrorNote, Badge, fcfa } from '../ui';
+import { NotificationSettings } from './Notifications';
 
-type Form = 'product' | 'client' | 'depot' | 'contract' | 'users' | null;
+type Form = 'product' | 'client' | 'depot' | 'contract' | 'users' | 'notifications' | null;
 
 const ROLE_LABEL: Record<string, string> = { magasinier: 'Magasinier', manager: 'Manager', cfo: 'Finance', admin: 'Admin' };
 
-export function Settings({ profile, onSignOut }: { profile: Profile; onSignOut: () => void }) {
+export function Settings({ profile, onSignOut, onProfileChange }: { profile: Profile; onSignOut: () => void; onProfileChange: () => void }) {
   const [form, setForm] = useState<Form>(null);
   const [v, setV] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -93,6 +94,10 @@ export function Settings({ profile, onSignOut }: { profile: Profile; onSignOut: 
           Pour démarrer : 1) créez le dépôt, 2) ajoutez vos produits, 3) ajoutez vos clients.
         </p>
       )}
+      <Card onClick={() => open('notifications')}>
+        <p className="text-body font-bold">Notifications du moteur</p>
+        <p className="text-caption text-text-muted">iPhone{profile.telegram_chat_id ? ' · Telegram lié' : ' · Telegram'}</p>
+      </Card>
       {manage && <Card onClick={() => open('depot')}><p className="text-body font-bold">Dépôts</p><p className="text-caption text-text-muted">{counts.depots} · ajouter</p></Card>}
       {manage && <Card onClick={() => open('product')}><p className="text-body font-bold">Produits</p><p className="text-caption text-text-muted">{counts.products} · ajouter</p></Card>}
       {finance && <Card onClick={() => open('client')}><p className="text-body font-bold">Clients</p><p className="text-caption text-text-muted">{counts.clients} · ajouter</p></Card>}
@@ -100,6 +105,10 @@ export function Settings({ profile, onSignOut }: { profile: Profile; onSignOut: 
       {profile.role === 'admin' && <Card onClick={() => open('users')}><p className="text-body font-bold">Utilisateurs et rôles</p><p className="text-caption text-text-muted">{users.length} compte(s)</p></Card>}
       <Button variant="ghost" className="w-full" onClick={onSignOut}>Se déconnecter</Button>
       <ErrorNote error={form ? null : error} />
+
+      <Sheet open={form === 'notifications'} title="Notifications" onClose={() => setForm(null)}>
+        <NotificationSettings profile={profile} onChange={onProfileChange} />
+      </Sheet>
 
       <Sheet open={form === 'depot'} title="Nouveau dépôt" onClose={() => setForm(null)}>
         <Field label="Code (ex. ALM)"><Input value={v.code ?? ''} onChange={set('code')} /></Field>

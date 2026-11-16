@@ -65,7 +65,7 @@ do $$ begin
   begin
     perform dispatch_fefo('POU-CUI-10', 50, 'Moussa Traders');
     raise exception 'devait échouer';
-  exception when others then assert sqlerrm like 'Limite de crédit dépassée%', sqlerrm; end;
+  exception when others then assert sqlerrm ilike '%limite de crédit dépassée%', sqlerrm; end;
   begin
     perform dispatch_fefo('POU-CUI-10', 50, 'Moussa Traders', null, null, null, true, true);
     raise exception 'devait échouer';
@@ -190,3 +190,74 @@ do $$ begin
 end $$;
 reset role;
 select 'FONCTIONS INTERNES VERROUILLÉES' as resultat;
+
+-- ═══ Moteur ══════════════════════════════════════════════════════════════════
+select engine_scan() as taches_creees;
+do $$ begin
+  assert (select engine_scan()) = 0, 'moteur idempotent';
+  assert exists (select 1 from tasks where kind = 'reappro' and action->>'tool' = 'bon_commande'), 'réappro préparé';
+  assert exists (select 1 from tasks where kind = 'creance' and link like 'https://wa.me/221770000001?text=%'), 'relance WhatsApp prête';
+end $$;
+
+-- Magasinier : voit le stock (FEFO / rupture), pas les créances, ne peut pas valider un bon de commande
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$
+declare v_task uuid;
+begin
+  assert not exists (select 1 from tasks where kind = 'creance'), 'magasinier ne voit pas les créances';
+  assert not exists (select 1 from tasks where kind = 'reappro'), 'réappro réservé au manager';
+  -- Vente à perte bloquée (LOT-B coûte 6 000 FCFA)
+  begin
+    perform dispatch_fefo('POU-CUI-10', 1, 'Poissonnerie Soumbedioune', null, 5000);
+    raise exception 'devait échouer';
+  exception when others then assert sqlerrm like 'VENTE BLOQUÉE — prix%', sqlerrm; end;
+end $$;
+reset role;
+
+-- CFO : valide la commande proposée → bon de commande créé ; refuser une seconde fois = sans effet
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+do $$
+declare v_task uuid; r jsonb;
+begin
+  select id into v_task from tasks where kind = 'reappro' limit 1;
+  r := decide_task(v_task, 'valider');
+  assert r->>'status' = 'validee', r::text;
+  assert (r->'result'->>'number') like 'BC-%', r::text;
+  assert (decide_task(v_task, 'refuser'))->>'message' = 'Déjà traitée', 'pas de double décision';
+  assert (select count(*) from purchase_orders) = 1, 'bon de commande';
+end $$;
+reset role;
+
+-- Admin : vente à perte avec dérogation → passe, et une alerte "anomalie" est créée
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select dispatch_fefo('POU-CUI-10', 1, 'Poissonnerie Soumbedioune', null, 5000, 0, true, true, 'Promo');
+do $$ begin
+  assert exists (select 1 from tasks where kind = 'anomalie' and title like 'Dérogation%'), 'dérogation signalée';
+end $$;
+reset role;
+
+-- Telegram : décision au nom d'un utilisateur réservée au service_role
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ begin
+  begin
+    perform decide_task((select id from tasks limit 1), 'valider', '00000000-0000-0000-0000-00000000000a');
+    raise exception 'devait échouer';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+select 'MOTEUR OK' as resultat;
+
+-- Document lu → réception validée par le magasinier (format produit par engine/logic.ts)
+insert into tasks (kind, title, body, audience, action, dedupe_key) values ('document', 'Facture lue', '-', '{magasinier,manager,admin}',
+  '{"tool":"reception","args":{"fournisseur":"Allana","conteneur":"MSCU9","devise":"EUR","reference":"INV-77",
+    "lignes":[{"produit":"BOE-FOI-20","quantite":50,"lot":"L-77","expiration":"2030-01-01","cout_unitaire":30}]}}', 'document:test');
+update profiles set depot_id = (select id from depots where code = 'ALM') where id = '00000000-0000-0000-0000-00000000000b';
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ declare r jsonb; begin
+  r := decide_task((select id from tasks where dedupe_key = 'document:test'), 'valider');
+  assert r->>'status' = 'validee', r::text;
+  assert (select quantity from v_stock_lots where lot_number = 'L-77') = 50, 'lot reçu';
+  assert (select round(cost_unit_xof) from lots where lot_number = 'L-77') = round(30 * 655.957), 'coût converti EUR';
+end $$;
+reset role;
+select 'DOCUMENT → RÉCEPTION OK' as resultat;

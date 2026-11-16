@@ -46,3 +46,27 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// ─── Notifications du moteur DEPOTEK ─────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { title: 'DEPOTEK', body: event.data?.text() }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'DEPOTEK', {
+    body: data.body || '',
+    tag: data.tag,
+    data: { url: data.url || BASE },
+    icon: BASE + 'icon-192.png',
+    badge: BASE + 'icon-192.png',
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || BASE;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.location.origin + BASE));
+      return open ? open.focus() : self.clients.openWindow(url);
+    }),
+  );
+});
