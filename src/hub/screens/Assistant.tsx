@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Mic, Send, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search } from 'lucide-react';
 import { supabase, rpc, type Profile, canSeeFinance, uploadDocument } from '../supabase';
-import { fcfa } from '../ui';
+import { fcfa, useDocPicker } from '../ui';
 import { cx as cn } from '../cx';
 
 type Msg = { role: 'user' | 'model'; text: string; action?: { id: string; summary: string; state?: 'done' } };
@@ -28,7 +28,6 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const finance = canSeeFinance(profile.role);
   const [welcome, setWelcome] = useState<Welcome | null>(null);
@@ -55,6 +54,7 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
     })();
   }, [messages.length, finance]);
 
+  const picker = useDocPicker((f) => sendFile(f));
   const sendFile = async (file: File) => {
     setMessages((m) => [...m, { role: 'user', text: `📎 ${file.name || 'Photo du document'}` }]);
     setBusy(true);
@@ -195,7 +195,7 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
                     </span>
                   </button>
                 ))}
-                <button onClick={() => fileRef.current?.click()}
+                <button onClick={picker.open}
                   className="w-full flex items-start gap-3 px-4 py-3 text-left border-t border-border-default active:bg-surface-subtle">
                   <Camera size={18} className="text-brand mt-0.5 shrink-0" />
                   <span>
@@ -238,11 +238,10 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
         <div ref={endRef} />
       </div>
 
+      {picker.element}
       <form onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="px-3 pt-2 pb-24 flex gap-2 items-center bg-surface-page border-t border-border-default">
-        <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
-        <button type="button" onClick={() => fileRef.current?.click()} aria-label="Photo d’un document"
+        <button type="button" onClick={picker.open} aria-label="Photo d’un document"
           className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-surface-subtle text-brand">
           <Camera size={20} />
         </button>

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Check, X, MessageCircle, ChevronDown } from 'lucide-react';
 import { supabase, rpc, type Profile, uploadDocument } from '../supabase';
-import { Card, Badge, Empty, ErrorNote } from '../ui';
+import { Card, Badge, Empty, ErrorNote, useDocPicker } from '../ui';
 import { cx } from '../cx';
+import { useNav, type OpForm } from '../nav';
 
 export interface Task {
   id: string; kind: string; severity: 'info' | 'warning' | 'critical'; title: string; body: string;
   action: { tool: string } | null; link: string | null; status: string; result: { error?: string } | null;
-  created_at: string; decided_at: string | null;
+  created_at: string; decided_at: string | null; dedupe_key?: string | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -21,6 +22,23 @@ const ago = (d: string) => {
   return m < 1 ? "à l'instant" : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `il y a ${Math.round(m / 1440)} j`;
 };
 
+/** Raccourci vers l'opération qui règle la tâche (au lieu d'un simple « Noté »). */
+function shortcut(t: Task): { label: string; form: OpForm; preset: Record<string, string> } | null {
+  const k = t.dedupe_key ?? '';
+  const part = (i: number) => k.split(':')[i] ?? '';
+  if (k.startsWith('sanschambre:')) return { label: 'Ranger le lot', form: 'deplacer', preset: { lot_id: part(1) } };
+  if (k.startsWith('cout:')) return { label: 'Saisir le coût', form: 'completer', preset: { lot_id: part(1) } };
+  if (k.startsWith('dlc:')) return { label: 'Saisir la DLC', form: 'completer', preset: { lot_id: part(1) } };
+  if (k.startsWith('chambre:')) return { label: 'Transférer du stock', form: 'transfert', preset: {} };
+  if (k.startsWith('location:')) return { label: 'Gérer la location', form: 'fin_location', preset: { contract: part(1) } };
+  if (t.kind === 'creance') {
+    const client = t.title.replace(/^Relancer\s+/, '').trim();
+    return { label: 'Encaisser', form: 'encaissement', preset: { client } };
+  }
+  if (t.kind === 'fefo') return { label: 'Vendre en priorité', form: 'vente', preset: {} };
+  return null;
+}
+
 /** Fil « À traiter » : tout ce que le moteur a détecté ou préparé, avec validation en un clic. */
 export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: number) => void }) {
   const [open, setOpen] = useState<Task[]>([]);
@@ -29,7 +47,7 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const { openOp } = useNav();
 
   const load = useCallback(async () => {
     const [o, d] = await Promise.all([
@@ -66,14 +84,14 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
     setScanMsg('📄 Document reçu. DEPOTEK le lit et vous propose la saisie dans quelques secondes.');
     setTimeout(() => setScanMsg(null), 8000);
   };
+  const picker = useDocPicker(scan);
 
   return (
     <div className="space-y-3">
-      <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) scan(f); e.target.value = ''; }} />
-      <button onClick={() => fileRef.current?.click()}
+      {picker.element}
+      <button onClick={picker.open}
         className="w-full flex items-center justify-center gap-2 bg-brand text-white rounded-2xl py-4 text-body font-bold active:scale-[0.99]">
-        <Camera size={20} /> Scanner une facture ou un reçu
+        <Camera size={20} /> Envoyer une facture, un bon ou un reçu
       </button>
       {scanMsg && <p className="rounded-xl bg-status-info-bg text-status-info text-body p-3">{scanMsg}</p>}
       <ErrorNote error={error} />
@@ -94,9 +112,15 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
                 <MessageCircle size={16} /> WhatsApp
               </a>
             )}
+            {!t.action && shortcut(t) && (
+              <button onClick={() => { const sc = shortcut(t)!; openOp(sc.form, sc.preset); }}
+                className="flex-1 flex items-center justify-center gap-1 bg-brand text-white rounded-xl py-2 text-body font-bold">
+                {shortcut(t)!.label}
+              </button>
+            )}
             <button disabled={busy === t.id} onClick={() => decide(t, 'valider')}
-              className="flex-1 flex items-center justify-center gap-1 bg-brand text-white rounded-xl py-2 text-body font-bold disabled:opacity-50">
-              <Check size={16} /> {t.action ? 'Valider' : 'Noté'}
+              className={cx('flex items-center justify-center gap-1 rounded-xl py-2 text-body font-bold disabled:opacity-50', !t.action && shortcut(t) ? 'bg-surface-subtle text-text-primary px-4' : 'flex-1 bg-brand text-white')}>
+              <Check size={16} /> {t.action ? 'Valider' : shortcut(t) ? '' : 'Noté'}
             </button>
             <button disabled={busy === t.id} onClick={() => decide(t, 'refuser')}
               className="flex items-center justify-center gap-1 bg-surface-subtle text-text-primary rounded-xl px-4 py-2 text-body font-bold disabled:opacity-50">

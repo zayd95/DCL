@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Bell, Box, Wallet, ArrowLeftRight, ChevronLeft, X, Play } from 'lucide-react';
 import { DEMO_STEPS } from './demo';
+import { NavContext, type OpForm, type PendingOp } from './nav';
 import { supabase, type Profile, canSeeFinance } from './supabase';
 import { cx as cn } from './cx';
 import { Login } from './screens/Login';
@@ -19,6 +20,10 @@ export default function HubApp() {
   const [tab, setTab] = useState<Tab>('accueil');
   const [openTasks, setOpenTasks] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingOp, setPendingOp] = useState<PendingOp | null>(null);
+  const openOp = (form: OpForm, preset: Record<string, string> = {}) => {
+    setSettingsOpen(false); setTab('operations'); setPendingOp({ form, preset, n: Date.now() });
+  };
   const [demo, setDemo] = useState<{ step: number; text: string; ok: boolean; done: boolean } | null>(null);
   const demoStop = React.useRef(false);
 
@@ -89,6 +94,7 @@ export default function HubApp() {
   ];
 
   return (
+    <NavContext.Provider value={{ openOp }}>
     <div className="fixed inset-0 bg-surface-page flex justify-center">
       <div className="relative w-full max-w-[480px] h-full overflow-hidden">
         <div className={cn('h-full', tab !== 'accueil' && 'hidden')}>
@@ -97,7 +103,7 @@ export default function HubApp() {
         </div>
         {tab === 'stock' && <Stock profile={profile} />}
         {tab === 'creances' && finance && <Receivables />}
-        {tab === 'operations' && <Operations profile={profile} />}
+        {tab === 'operations' && <Operations profile={profile} pending={pendingOp} />}
 
         {/* Réglages : ouverts depuis l'engrenage de l'accueil, par-dessus les onglets */}
         {settingsOpen && (
@@ -145,5 +151,6 @@ export default function HubApp() {
         </nav>
       </div>
     </div>
+    </NavContext.Provider>
   );
 }
