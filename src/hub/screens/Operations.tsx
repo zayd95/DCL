@@ -19,26 +19,26 @@ interface Day {
 
 type Form = 'vente' | 'reception' | 'encaissement' | 'transfert' | 'deplacer' | 'inventaire' | 'client' | 'location' | 'fin_location';
 
-const ACTIONS: { key: Form; label: string; icon: LucideIcon; roles: Role[] }[] = [
+const ACTIONS: { key: Form; label: string; icon: LucideIcon; roles: Role[]; color?: string }[] = [
   { key: 'vente', label: 'Vente', icon: ArrowUpFromLine, roles: ['magasinier', 'manager', 'cfo', 'admin'] },
   { key: 'reception', label: 'Réception', icon: ArrowDownToLine, roles: ['magasinier', 'manager', 'admin'] },
-  { key: 'encaissement', label: 'Encaisser', icon: Banknote, roles: ['manager', 'cfo', 'admin'] },
-  { key: 'transfert', label: 'Transfert', icon: ArrowLeftRight, roles: ['magasinier', 'manager', 'admin'] },
-  { key: 'deplacer', label: 'Changer de chambre', icon: MoveRight, roles: ['magasinier', 'manager', 'admin'] },
-  { key: 'inventaire', label: 'Inventaire / perte', icon: ClipboardCheck, roles: ['manager', 'admin'] },
-  { key: 'client', label: 'Nouveau client', icon: UserPlus, roles: ['manager', 'cfo', 'admin'] },
-  { key: 'location', label: 'Louer une chambre', icon: KeyRound, roles: ['manager', 'cfo', 'admin'] },
-  { key: 'fin_location', label: 'Fin de location', icon: DoorOpen, roles: ['manager', 'cfo', 'admin'] },
+  { key: 'encaissement', label: 'Encaisser', icon: Banknote, roles: ['manager', 'cfo', 'admin'], color: '#34C759' },
+  { key: 'transfert', label: 'Transfert', icon: ArrowLeftRight, roles: ['magasinier', 'manager', 'admin'], color: '#007AFF' },
+  { key: 'deplacer', label: 'Changer de chambre', icon: MoveRight, roles: ['magasinier', 'manager', 'admin'], color: '#30B0C7' },
+  { key: 'inventaire', label: 'Inventaire / perte', icon: ClipboardCheck, roles: ['manager', 'admin'], color: '#FF9500' },
+  { key: 'client', label: 'Nouveau client', icon: UserPlus, roles: ['manager', 'cfo', 'admin'], color: '#AF52DE' },
+  { key: 'location', label: 'Louer une chambre', icon: KeyRound, roles: ['manager', 'cfo', 'admin'], color: '#1a237e' },
+  { key: 'fin_location', label: 'Fin de location', icon: DoorOpen, roles: ['manager', 'cfo', 'admin'], color: '#FF3B30' },
 ];
 
-const KIND: Record<string, { icon: LucideIcon; tone: string }> = {
-  vente: { icon: ArrowUpFromLine, tone: 'text-brand bg-surface-subtle' },
-  reception: { icon: ArrowDownToLine, tone: 'text-brand bg-surface-subtle' },
-  encaissement: { icon: Banknote, tone: 'text-brand bg-surface-subtle' },
-  transfert: { icon: ArrowLeftRight, tone: 'text-brand bg-surface-subtle' },
-  location: { icon: KeyRound, tone: 'text-brand bg-surface-subtle' },
-  perte: { icon: AlertTriangle, tone: 'text-status-danger bg-status-danger-bg' },
-  ajustement: { icon: ClipboardCheck, tone: 'text-brand bg-surface-subtle' },
+const KIND: Record<string, { icon: LucideIcon; color: string }> = {
+  vente: { icon: ArrowUpFromLine, color: '#1a237e' },
+  reception: { icon: ArrowDownToLine, color: '#1a237e' },
+  encaissement: { icon: Banknote, color: '#34C759' },
+  transfert: { icon: ArrowLeftRight, color: '#007AFF' },
+  location: { icon: KeyRound, color: '#1a237e' },
+  perte: { icon: AlertTriangle, color: '#FF3B30' },
+  ajustement: { icon: ClipboardCheck, color: '#FF9500' },
 };
 
 const PAY = [
@@ -260,7 +260,7 @@ export function Operations({ profile }: { profile: Profile }) {
           {primary.map(({ key, label, icon: Icon }, i) => (
             <button key={key} onClick={() => openForm(key)}
               className={cx('rounded-2xl py-3.5 flex items-center justify-center gap-2 text-body font-semibold active:opacity-80 transition',
-                'bg-surface-card text-brand', i < 0 && '')}>
+                i === 0 ? 'bg-brand text-white' : 'bg-surface-card text-brand')}>
               <Icon size={18} />{label}
             </button>
           ))}
@@ -270,10 +270,10 @@ export function Operations({ profile }: { profile: Profile }) {
       {secondary.length > 0 && <>
         <p className="text-caption text-text-secondary px-4 pt-3">Autres opérations</p>
         <div className="bg-surface-card rounded-2xl overflow-hidden">
-          {secondary.map(({ key, label, icon: Icon }, i) => (
+          {secondary.map(({ key, label, icon: Icon, color }, i) => (
             <button key={key} onClick={() => openForm(key)}
               className="w-full flex items-center gap-3 pl-4 active:bg-surface-subtle transition">
-              <span className="w-7 h-7 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0"><Icon size={15} /></span>
+              <span className="w-7 h-7 rounded-lg text-white flex items-center justify-center shrink-0" style={{ background: color }}><Icon size={15} /></span>
               <span className={cx('flex-1 flex items-center justify-between py-3 pr-4 text-left', i > 0 && 'border-t border-border-default')}>
                 <span className="text-body text-text-primary">{label}</span>
                 <ChevronRight size={18} className="text-text-muted" />
@@ -295,7 +295,7 @@ export function Operations({ profile }: { profile: Profile }) {
               const k = KIND[j.kind] ?? KIND.ajustement;
               return (
                 <div key={i} className="flex gap-3 pl-4">
-                  <span className={cx('w-7 h-7 mt-3 rounded-full flex items-center justify-center shrink-0', k.tone)}><k.icon size={14} /></span>
+                  <span className="w-7 h-7 mt-3 rounded-full flex items-center justify-center shrink-0 text-white" style={{ background: k.color }}><k.icon size={14} /></span>
                   <div className={cx('min-w-0 flex-1 py-3 pr-4', i > 0 && 'border-t border-border-default')}>
                     <div className="flex justify-between gap-3">
                       <p className="text-body text-text-primary truncate">{j.title}</p>
