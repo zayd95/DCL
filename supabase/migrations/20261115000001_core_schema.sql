@@ -161,7 +161,7 @@ create table public.stock_balances (
 create index stock_balances_active_idx on public.stock_balances (depot_id) where quantity > 0;
 
 create or replace function public.tg_apply_movement() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = public as $$
 begin
   -- UPDATE d'abord : la CHECK (quantity >= 0) bloque toute sortie au-delà du stock
   update public.stock_balances
@@ -182,7 +182,7 @@ create trigger stock_movements_apply
   for each row execute function public.tg_apply_movement();
 
 create or replace function public.tg_immutable() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = public as $$
 begin
   raise exception 'Le grand livre est immuable : passez une écriture de correction (adjustment).';
 end $$;
@@ -249,7 +249,7 @@ create index payments_invoice_idx on public.payments (invoice_id);
 
 -- Recalcule paid_xof et le statut à chaque paiement
 create or replace function public.tg_payment_rollup() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = public as $$
 declare
   v_paid  bigint;
   v_total bigint;

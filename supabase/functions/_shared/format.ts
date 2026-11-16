@@ -2,11 +2,11 @@
 
 export const fcfa = (n: number | string | null | undefined): string => {
   const v = Math.round(Number(n ?? 0));
-  return v.toLocaleString("fr-FR").replace(/ | /g, " ") + " FCFA";
+  return v.toLocaleString("fr-FR").replace(/[\u202f\u00a0]/g, " ") + " FCFA";
 };
 
 export const qty = (n: number | string | null | undefined): string =>
-  Number(n ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 }).replace(/ | /g, " ");
+  Number(n ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 }).replace(/[\u202f\u00a0]/g, " ");
 
 const UNIT_LABELS: Record<string, [string, string]> = {
   carton: ["carton", "cartons"], palette: ["palette", "palettes"], sac: ["sac", "sacs"],

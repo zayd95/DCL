@@ -102,6 +102,8 @@ revoke all on all tables    in schema public from anon;
 revoke all on all functions in schema public from anon, public;
 revoke all on all sequences in schema public from anon;
 
+-- Par défaut Supabase donne tous les droits à authenticated : on restreint
+revoke all on all tables in schema public from authenticated;
 grant usage on schema public to authenticated, service_role;
 grant select on all tables in schema public to authenticated;
 grant insert, update, delete on public.depots, public.storage_units, public.suppliers, public.products,
@@ -128,3 +130,6 @@ grant execute on function
 to authenticated;
 
 grant execute on all functions in schema public to service_role;
+
+-- Les nouvelles fonctions créées plus tard ne doivent pas être exécutables par anon par défaut
+alter default privileges in schema public revoke execute on functions from anon, public;

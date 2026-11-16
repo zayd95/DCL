@@ -179,3 +179,14 @@ select jsonb_pretty(daily_briefing());
 reset role;
 
 select 'TOUS LES TESTS PASSENT' as resultat;
+
+-- Fonctions internes non appelables par un utilisateur
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$ begin
+  begin
+    perform next_invoice_number('vente');
+    raise exception 'devait échouer';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+select 'FONCTIONS INTERNES VERROUILLÉES' as resultat;

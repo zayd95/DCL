@@ -1,8 +1,9 @@
 // ═════════════════════════════════════════════════════════════════════════════
 // Edge Function : briefing du matin
 //
-// Appelée chaque jour à 7 h par pg_cron (voir supabase/cron.sql), avec
-// l'en-tête  x-cron-secret: <CRON_SECRET>.
+// Appelée chaque jour à 7 h par pg_cron (voir supabase/cron.sql), avec l'en-tête
+// x-cron-secret : secret aléatoire stocké chiffré dans Supabase Vault et vérifié
+// en base par verify_cron_secret() — aucun secret à saisir à la main.
 //   1. génère les alertes du jour (FEFO, réappro, impayés)
 //   2. construit le briefing et l'envoie sur Telegram aux managers / CFO / admin
 //      qui ont renseigné leur telegram_chat_id
@@ -13,7 +14,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { briefingText, json } from "../_shared/format.ts";
 
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
-const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 
 async function sendTelegram(chatId: string, text: string): Promise<boolean> {
   if (!TELEGRAM_BOT_TOKEN) return false;
@@ -27,13 +27,13 @@ async function sendTelegram(chatId: string, text: string): Promise<boolean> {
 }
 
 Deno.serve(async (req) => {
-  if (!CRON_SECRET || req.headers.get("x-cron-secret") !== CRON_SECRET) {
-    return json({ error: "Non autorisé" }, 401);
-  }
-  const dry = new URL(req.url).searchParams.get("dry") === "1";
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
     auth: { persistSession: false },
   });
+  const secret = req.headers.get("x-cron-secret") ?? "";
+  const { data: valid } = secret ? await admin.rpc("verify_cron_secret", { p: secret }) : { data: false };
+  if (!valid) return json({ error: "Non autorisé" }, 401);
+  const dry = new URL(req.url).searchParams.get("dry") === "1";
 
   const alerts = await admin.rpc("generate_alerts");
   if (alerts.error) return json({ error: alerts.error.message }, 500);

@@ -23,7 +23,8 @@ supabase/
 ├── migrations/
 │   ├── 20261115000001_core_schema.sql     tables, grand livre, factures, stockage tiers
 │   ├── 20261115000002_business_logic.sql fonctions métier + vues
-│   └── 20261115000003_security.sql        RLS, droits, profils
+│   ├── 20261115000003_security.sql        RLS, droits, profils
+│   └── 20261115000004_lock_internal_functions.sql
 ├── functions/
 │   ├── assistant/        agent Gemini (lecture directe, écriture après confirmation)
 │   ├── daily-briefing/   briefing de 7 h → Telegram + alerte dans l'app
@@ -32,36 +33,21 @@ supabase/
 └── tests/                test de bout en bout du métier + tests des fonctions
 ```
 
-## Installation (≈ 20 min)
+## Déploiement
 
-1. Créer un compte sur [supabase.com](https://supabase.com), puis un projet **gratuit** « depotek »
-   (région la plus proche : Europe West / Frankfurt).
-2. Installer la CLI et relier le projet :
-   ```bash
-   npm i -g supabase
-   supabase login
-   supabase link --project-ref <PROJECT_REF>
-   ```
-3. Créer la base :
-   ```bash
-   supabase db push
-   ```
-4. Secrets des fonctions : copier `supabase/functions/.env.example` en `supabase/functions/.env`, le remplir, puis
-   ```bash
-   supabase secrets set --env-file supabase/functions/.env
-   supabase functions deploy assistant
-   supabase functions deploy daily-briefing
-   ```
-5. Ouvrir **SQL Editor**, coller `supabase/cron.sql` (en remplaçant `<PROJECT_REF>` et `<CRON_SECRET>`) et exécuter.
-6. Se connecter une première fois depuis l'app : **le premier compte devient admin**.
-   Les suivants sont `magasinier` ; changer leur rôle dans la table `profiles`.
-7. Telegram (optionnel) : créer un bot avec @BotFather, envoyer `/start` au bot, récupérer son
-   chat id (par ex. via @userinfobot) et le mettre dans `profiles.telegram_chat_id`.
+**Déjà en ligne** : projet Supabase `depotek` (organisation Boxus, région Francfort,
+ref `upvxglsoscvqtkdfekpi`). Migrations appliquées, fonctions `assistant` et `daily-briefing` déployées,
+tâches planifiées actives. Seul secret à fournir : `GEMINI_API_KEY`
+(Dashboard → Edge Functions → Secrets). `TELEGRAM_BOT_TOKEN` est optionnel.
 
-Tester le briefing sans rien envoyer :
-```bash
-curl -H "x-cron-secret: <CRON_SECRET>" "https://<PROJECT_REF>.supabase.co/functions/v1/daily-briefing?dry=1"
-```
+Pour un nouveau projet :
+1. `supabase link --project-ref <ref>` puis `supabase db push`
+2. `supabase secrets set GEMINI_API_KEY=...` puis `supabase functions deploy assistant` et `supabase functions deploy daily-briefing`
+3. Exécuter `supabase/cron.sql` dans SQL Editor (remplacer `<PROJECT_REF>`).
+
+Premier compte connecté = **admin** ; les suivants sont `magasinier` (changer le rôle dans `profiles`).
+Telegram (optionnel) : créer un bot avec @BotFather, mettre le token dans `TELEGRAM_BOT_TOKEN`,
+et son chat id dans `profiles.telegram_chat_id`.
 
 ## Utiliser l'assistant
 
