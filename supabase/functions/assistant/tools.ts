@@ -109,7 +109,7 @@ export const writeTools = [
   {
     name: "transfert",
     description: "Transfert de stock entre deux entrepôts (FEFO).",
-    parameters: obj({ produit: S, quantite: N, depot_depart: S, depot_arrivee: S },
+    parameters: obj({ produit: S, quantite: N, depot_depart: S, depot_arrivee: S, chambre_arrivee: { ...S, description: "Chambre froide d'arrivée (optionnel)" } },
       ["produit", "quantite", "depot_depart", "depot_arrivee"]),
   },
   {
@@ -163,7 +163,7 @@ export async function runReadTool(db: SupabaseClient, name: string, a: Args): Pr
     }
     case "stock_lots": {
       let q = db.from("v_stock_lots").select(
-        "sku,product_name,depot_code,room_name,lot_number,quantity,unit_type,weight_kg,value_xof,expiry_date,days_to_expiry,fefo_status,container_no,supplier,owner_client",
+        "sku,product_name,depot_code,room_name,lot_number,quantity,unit_type,weight_kg,value_xof,cost_unit_xof,expiry_date,days_to_expiry,fefo_status,container_no,supplier,owner_client",
       ).order("expiry_date", { ascending: true, nullsFirst: false });
       if (a.produit) q = q.or(`product_name.ilike.${orLike(a.produit)},sku.ilike.${orLike(a.produit)}`);
       if (a.depot) q = q.ilike("depot_code", a.depot);
@@ -260,7 +260,7 @@ export function runWriteTool(db: SupabaseClient, name: string, a: Args): Promise
       });
     case "transfert":
       return call("transfer_stock", {
-        p_product: a.produit, p_qty: a.quantite, p_from_depot: a.depot_depart, p_to_depot: a.depot_arrivee,
+        p_product: a.produit, p_qty: a.quantite, p_from_depot: a.depot_depart, p_to_depot: a.depot_arrivee, p_to_room: a.chambre_arrivee,
       });
     case "inventaire":
       return call("adjust_stock", {

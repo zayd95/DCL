@@ -150,8 +150,11 @@ export function Operations({ profile }: { profile: Profile }) {
           break;
         }
         case 'transfert':
-          await rpc('transfer_stock', { p_product: v.product, p_qty: n(v.qty), p_from_depot: v.from, p_to_depot: v.to });
-          msg = `${qty(v.qty)} × ${product?.name ?? v.product} transférés ${v.from} → ${v.to}.`;
+          await rpc('transfer_stock', {
+            p_product: v.product, p_qty: n(v.qty), p_from_depot: v.from, p_to_depot: v.to,
+            p_to_room: rooms.find((r) => r.room_id === v.room)?.room_code,
+          });
+          msg = `${qty(v.qty)} × ${product?.name ?? v.product} transférés ${v.from} → ${v.to}${v.room ? ` (${rooms.find((r) => r.room_id === v.room)?.room_name})` : ''}.`;
           break;
         case 'deplacer': {
           const room = rooms.find((r) => r.room_id === v.room);
@@ -388,6 +391,8 @@ export function Operations({ profile }: { profile: Profile }) {
             <Field label="De"><Select options={depotOpts} value={v.from ?? ''} onChange={set('from')} /></Field>
             <Field label="Vers"><Select options={depotOpts.filter((d) => d.value !== v.from)} value={v.to ?? ''} onChange={set('to')} /></Field>
           </div>
+          {v.to && <Field label="Chambre d’arrivée"><Select options={rooms.filter((r) => r.depot_code === v.to && r.status !== 'louee')
+            .map((r) => ({ value: r.room_id, label: roomLabel(r) }))} value={v.room ?? ''} onChange={set('room')} /></Field>}
           {depots.length < 2 && <p className="text-caption text-text-muted">Ajoute un deuxième entrepôt dans Réglages pour transférer.</p>}
         </>}
 
