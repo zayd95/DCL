@@ -311,3 +311,24 @@ do $$ declare r jsonb; begin
 end $$;
 reset role;
 select 'DOCUMENT → RÉCEPTION OK' as resultat;
+
+-- ═══ Opérations du jour ═════════════════════════════════════════════════════
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+do $$ declare r jsonb; begin
+  r := operations_day();
+  assert (r->>'sales_count')::int >= 3, r::text;
+  assert (r->>'sales_xof')::bigint > 0 and (r->>'payments_xof')::bigint > 0, 'montants visibles pour la finance';
+  assert jsonb_array_length(r->'journal') > 5, 'journal';
+  assert exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'location'), 'location au journal';
+  assert exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'encaissement'), 'encaissement au journal';
+end $$;
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ declare r jsonb; begin
+  r := operations_day();
+  assert r->>'sales_xof' is null and r->>'payments_xof' is null, 'magasinier : pas de montants';
+  assert not exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'amount_xof' is not null), 'journal sans montants';
+  assert not exists (select 1 from jsonb_array_elements(r->'journal') e where e->>'kind' = 'encaissement'), 'pas d''encaissements';
+end $$;
+reset role;
+select 'OPERATIONS OK' as resultat;
