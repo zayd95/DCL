@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { Bell, Box, Wallet, ArrowLeftRight, Settings as SettingsIcon } from 'lucide-react';
+import { Bell, Box, Wallet, ArrowLeftRight, ChevronLeft } from 'lucide-react';
 import { supabase, type Profile, canSeeFinance } from './supabase';
 import { cx as cn } from './cx';
 import { Login } from './screens/Login';
@@ -10,13 +10,14 @@ import { Receivables } from './screens/Receivables';
 import { Operations } from './screens/Operations';
 import { Settings } from './screens/Settings';
 
-type Tab = 'accueil' | 'stock' | 'creances' | 'operations' | 'reglages';
+type Tab = 'accueil' | 'stock' | 'operations' | 'creances';
 
 export default function HubApp() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [tab, setTab] = useState<Tab>('accueil');
   const [openTasks, setOpenTasks] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -63,9 +64,8 @@ export default function HubApp() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode; show: boolean }[] = [
     { id: 'accueil', label: 'DEPOTEK', icon: <Bell size={22} />, show: true },
     { id: 'stock', label: 'Stock', icon: <Box size={22} />, show: true },
-    { id: 'creances', label: 'Créances', icon: <Wallet size={22} />, show: finance },
     { id: 'operations', label: 'Opérations', icon: <ArrowLeftRight size={22} />, show: true },
-    { id: 'reglages', label: 'Réglages', icon: <SettingsIcon size={22} />, show: true },
+    { id: 'creances', label: 'Créances', icon: <Wallet size={22} />, show: finance },
   ];
 
   return (
@@ -73,16 +73,26 @@ export default function HubApp() {
       <div className="relative w-full max-w-[480px] h-full overflow-hidden">
         <div className={cn('h-full', tab !== 'accueil' && 'hidden')}>
           <Home profile={profile} count={openTasks} onCount={setOpenTasks}
-            initial="inbox" />
+            initial="inbox" onOpenSettings={() => setSettingsOpen(true)} />
         </div>
         {tab === 'stock' && <Stock profile={profile} />}
         {tab === 'creances' && finance && <Receivables />}
         {tab === 'operations' && <Operations profile={profile} />}
-        {tab === 'reglages' && <Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} />}
+
+        {/* Réglages : ouverts depuis l'engrenage de l'accueil, par-dessus les onglets */}
+        {settingsOpen && (
+          <div className="absolute inset-0 z-[300] bg-surface-page flex flex-col">
+            <button onClick={() => setSettingsOpen(false)}
+              className="flex items-center gap-0.5 text-brand text-body px-3 pt-4 pb-1 self-start">
+              <ChevronLeft size={22} /> Retour
+            </button>
+            <div className="flex-1 min-h-0"><Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} /></div>
+          </div>
+        )}
 
         <nav className="absolute bottom-0 inset-x-0 h-20 bg-surface-card/90 backdrop-blur-xl border-t border-border-default flex justify-around items-center px-2 pb-4 z-[180]">
           {tabs.filter((t) => t.show).map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => { setTab(t.id); setSettingsOpen(false); }}
               className={cn('relative flex flex-col items-center gap-1 px-2', tab === t.id ? 'text-brand' : 'text-text-muted')}>
               {t.icon}
               {t.id === 'accueil' && openTasks > 0 && (

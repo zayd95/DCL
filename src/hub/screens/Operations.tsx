@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Banknote, ClipboardCheck, DoorOpen, KeyRound, MoveRight,
-  UserPlus, AlertTriangle, ChevronRight, type LucideIcon,
+  UserPlus, AlertTriangle, ChevronRight, Camera, Sparkles, type LucideIcon,
 } from 'lucide-react';
-import { supabase, rpc, type Profile, type Role, canSeeFinance } from '../supabase';
+import { supabase, rpc, type Profile, type Role, canSeeFinance, uploadDocument } from '../supabase';
 import { cx } from '../cx';
 import { useRooms } from './Rooms';
 import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, fcfa, qty } from '../ui';
@@ -66,6 +66,16 @@ export function Operations({ profile }: { profile: Profile }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const docRef = useRef<HTMLInputElement>(null);
+
+  const scanDoc = async (file: File) => {
+    setBusy(true); setError(null);
+    try {
+      await uploadDocument(profile.id, file);
+      setForm(null);
+      setDone('Document envoyé. DEPOTEK le lit et prépare la réception : validez-la dans DEPOTEK › À traiter.');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
 
   // ── Journal du jour, rafraîchi en direct ──────────────────────────────────
   const loadDay = useCallback(async () => {
@@ -314,6 +324,10 @@ export function Operations({ profile }: { profile: Profile }) {
 
       <Sheet open={form !== null} title={title} onClose={() => setForm(null)}>
         {form === 'vente' && <>
+          <p className="flex gap-2 rounded-xl bg-surface-subtle px-3 py-2 text-caption text-text-secondary">
+            <Sparkles size={16} className="text-brand shrink-0 mt-0.5" />
+            <span>Plus rapide dans l’Assistant : « Vends 20 cartons de cuisse à Moussa à 15 000 ».</span>
+          </p>
           <Field label="Produit"><Select options={productOpts} value={v.product ?? ''} onChange={set('product')} /></Field>
           <Field label="Client"><Select options={clientOpts} value={v.client ?? ''} onChange={set('client')} /></Field>
           <Field label="Quantité"><Input inputMode="decimal" value={v.qty ?? ''} onChange={set('qty')} /></Field>
@@ -326,6 +340,17 @@ export function Operations({ profile }: { profile: Profile }) {
         </>}
 
         {form === 'reception' && <>
+          <input ref={docRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) scanDoc(f); e.target.value = ''; }} />
+          <button onClick={() => docRef.current?.click()} disabled={busy}
+            className="w-full flex items-center gap-3 rounded-2xl bg-surface-subtle px-4 py-3 text-left">
+            <Camera size={20} className="text-brand shrink-0" />
+            <span>
+              <span className="block text-body font-semibold text-text-primary">Photographier le bon de livraison</span>
+              <span className="block text-caption text-text-muted">DEPOTEK remplit tout : produits, quantités, lots, dates</span>
+            </span>
+          </button>
+          <p className="text-caption text-text-muted text-center">ou saisir à la main</p>
           <Field label="Produit"><Select options={productOpts} value={v.product ?? ''} onChange={set('product')} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Quantité"><Input inputMode="decimal" value={v.qty ?? ''} onChange={set('qty')} /></Field>

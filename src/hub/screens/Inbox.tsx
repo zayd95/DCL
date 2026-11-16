@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Check, X, MessageCircle, ChevronDown } from 'lucide-react';
-import { supabase, rpc, type Profile } from '../supabase';
+import { supabase, rpc, type Profile, uploadDocument } from '../supabase';
 import { Card, Badge, Empty, ErrorNote } from '../ui';
 import { cx } from '../cx';
 
@@ -62,12 +62,7 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
 
   const scan = async (file: File) => {
     setScanMsg('Envoi du document…'); setError(null);
-    const ext = file.type === 'application/pdf' ? 'pdf' : (file.type.split('/')[1] || 'jpg');
-    const path = `${profile.id}/app-${Date.now()}.${ext}`;
-    const up = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
-    if (up.error) { setScanMsg(null); setError(up.error.message); return; }
-    const ins = await supabase.from('documents').insert({ storage_path: path, mime: file.type, source: 'app', uploaded_by: profile.id });
-    if (ins.error) { setScanMsg(null); setError(ins.error.message); return; }
+    try { await uploadDocument(profile.id, file); } catch (e) { setScanMsg(null); setError((e as Error).message); return; }
     setScanMsg('📄 Document reçu. DEPOTEK le lit et vous propose la saisie dans quelques secondes.');
     setTimeout(() => setScanMsg(null), 8000);
   };
