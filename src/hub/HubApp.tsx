@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Bell, Box, Wallet, ArrowLeftRight, ChevronLeft, X, Play } from 'lucide-react';
 import { DEMO_STEPS } from './demo';
-import { NavContext, type OpForm, type PendingOp } from './nav';
-import { supabase, type Profile, canSeeFinance } from './supabase';
+import { NavContext, type OpForm, type PendingOp, type SettingsPanel } from './nav';
+import { Avatar } from './ui';
+import { supabase, rpc, type Profile, canSeeFinance } from './supabase';
 import { cx as cn } from './cx';
 import { Login } from './screens/Login';
 import { Home } from './screens/Home';
@@ -20,6 +21,8 @@ export default function HubApp() {
   const [tab, setTab] = useState<Tab>('accueil');
   const [openTasks, setOpenTasks] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState<{ p?: SettingsPanel; n: number }>({ n: 0 });
+  const openSettings = (p?: SettingsPanel) => { setSettingsPanel({ p, n: Date.now() }); setSettingsOpen(true); };
   const [pendingOp, setPendingOp] = useState<PendingOp | null>(null);
   const openOp = (form: OpForm, preset: Record<string, string> = {}) => {
     setSettingsOpen(false); setTab('operations'); setPendingOp({ form, preset, n: Date.now() });
@@ -59,7 +62,7 @@ export default function HubApp() {
     supabase.from('profiles').select('*').eq('id', session.user.id).single()
       .then(({ data, error }) => {
         if (error || !data) setLoadError(error?.message || 'Profil introuvable');
-        else setProfile(data as Profile);
+        else { setProfile(data as Profile); if ((data as Profile).active) rpc('touch_last_seen', {}).catch(() => undefined); }
       });
   }, [session, retry]);
 
@@ -85,6 +88,24 @@ export default function HubApp() {
   }
   if (!session || !profile) return <Login />;
 
+  // Compte créé (email ou Google) mais pas encore validé par un administrateur
+  if (!profile.active) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center bg-surface-page">
+        <Avatar name={profile.full_name} url={profile.avatar_url} size={72} />
+        <div>
+          <p className="text-title font-bold text-text-primary">{profile.full_name || profile.email}</p>
+          <p className="text-caption text-text-secondary">{profile.email}</p>
+        </div>
+        <p className="text-body text-text-secondary max-w-xs">
+          Votre compte est en attente de validation. Un administrateur a été prévenu : il choisira votre rôle et vous donnera accès.
+        </p>
+        <button onClick={reloadProfile} className="bg-brand text-white rounded-xl px-6 py-3 font-bold">Vérifier à nouveau</button>
+        <button onClick={signOut} className="text-caption text-text-muted underline">Se déconnecter</button>
+      </div>
+    );
+  }
+
   const finance = canSeeFinance(profile.role);
   const tabs: { id: Tab; label: string; icon: React.ReactNode; show: boolean }[] = [
     { id: 'accueil', label: 'DEPOTEK', icon: <Bell size={22} />, show: true },
@@ -94,15 +115,15 @@ export default function HubApp() {
   ];
 
   return (
-    <NavContext.Provider value={{ openOp }}>
+    <NavContext.Provider value={{ openOp, openSettings }}>
     <div className="fixed inset-0 bg-surface-page flex justify-center">
       <div className="relative w-full max-w-[480px] h-full overflow-hidden">
         <div className={cn('h-full', tab !== 'accueil' && 'hidden')}>
           <Home profile={profile} count={openTasks} onCount={setOpenTasks}
-            initial="inbox" onOpenSettings={() => setSettingsOpen(true)} />
+            initial="inbox" onOpenSettings={() => openSettings()} />
         </div>
         {tab === 'stock' && <Stock profile={profile} />}
-        {tab === 'creances' && finance && <Receivables />}
+        {tab === 'creances' && finance && <Receivables profile={profile} />}
         {tab === 'operations' && <Operations profile={profile} pending={pendingOp} />}
 
         {/* Réglages : ouverts depuis l'engrenage de l'accueil, par-dessus les onglets */}
@@ -112,7 +133,7 @@ export default function HubApp() {
               className="flex items-center gap-0.5 text-brand text-body px-3 pt-4 pb-1 self-start">
               <ChevronLeft size={22} /> Retour
             </button>
-            <div className="flex-1 min-h-0"><Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} onStartDemo={runDemo} /></div>
+            <div className="flex-1 min-h-0"><Settings profile={profile} onSignOut={signOut} onProfileChange={reloadProfile} onStartDemo={runDemo} initialPanel={settingsPanel} /></div>
           </div>
         )}
 

@@ -9,7 +9,9 @@ create schema auth;
 create table auth.users (
   id uuid primary key default gen_random_uuid(),
   email text, phone text,
-  raw_user_meta_data jsonb default '{}'::jsonb
+  raw_user_meta_data jsonb default '{}'::jsonb,
+  raw_app_meta_data jsonb default '{}'::jsonb,
+  last_sign_in_at timestamptz
 );
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claims', true)::jsonb->>'sub', '')::uuid

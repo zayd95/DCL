@@ -147,3 +147,16 @@ export function useDocPicker(onFile: (f: File) => void) {
   );
   return { open: () => setOpen(true), element };
 }
+
+/** Photo de profil (Google) ou initiales. */
+export function Avatar({ name, url, size = 40 }: { name?: string | null; url?: string | null; size?: number }) {
+  const [broken, setBroken] = React.useState(false);
+  const initials = (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
+  return url && !broken ? (
+    <img src={url} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)}
+      className="rounded-full object-cover shrink-0" style={{ width: size, height: size }} />
+  ) : (
+    <span className="rounded-full bg-brand text-white font-bold flex items-center justify-center shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.38 }}>{initials}</span>
+  );
+}

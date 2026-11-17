@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Warehouse, Snowflake, Package, Users, UserCog, Play, ChevronRight, Plus, type LucideIcon } from 'lucide-react';
-import { supabase, rpc, type Profile, canManage, canSeeFinance } from '../supabase';
-import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, Badge, fcfa } from '../ui';
+import { Bell, Warehouse, Snowflake, Package, Users, UserCog, Play, ChevronRight, Plus, Building2, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { supabase, rpc, type Profile, type Role, canManage, canSeeFinance } from '../supabase';
+import { Screen, Sheet, Field, Input, Select, Button, ErrorNote, Badge, Avatar, fcfa, shortDate } from '../ui';
+import type { SettingsPanel } from '../nav';
 import { cx } from '../cx';
 import { NotificationSettings } from './Notifications';
 import { RoomForm, RoomSheet, useRooms, type Room } from './Rooms';
 
-type Panel = 'depots' | 'rooms' | 'products' | 'clients' | 'users' | 'notifications' | 'demo' | null;
+type Panel = SettingsPanel | 'company' | null;
 type Edit = { kind: 'depot' | 'product' | 'client' | 'room'; id?: string } | null;
 
 interface Depot { id: string; code: string; name: string; type: string; address: string | null; active: boolean }
@@ -19,6 +20,26 @@ interface Client {
 }
 
 const ROLE_LABEL: Record<string, string> = { magasinier: 'Magasinier', manager: 'Manager', cfo: 'Finance', admin: 'Admin' };
+const ROLE_HELP: Record<string, string> = {
+  magasinier: 'Réceptions, ventes, transferts, rangement. Pas de montants.',
+  manager: 'Tout le stock, ventes, inventaires, dérogations, prix.',
+  cfo: 'Factures, créances, encaissements, clients.',
+  admin: 'Tout, plus l’équipe et les réglages.',
+};
+interface Member {
+  id: string; full_name: string; role: Role; active: boolean; avatar_url: string | null; depot: string | null;
+  email: string | null; last_sign_in_at: string | null; last_seen_at: string | null; created_at: string; provider: string | null;
+}
+const COMPANY_FIELDS: [string, string, string][] = [
+  ['company_name', 'Raison sociale', 'OURY DIALLO SARL'], ['company_address', 'Adresse', 'Almadies, Dakar'],
+  ['company_phone', 'Téléphone', '33 000 00 00'], ['company_ninea', 'NINEA', ''], ['company_rccm', 'RCCM', ''],
+  ['invoice_footer', 'Pied de facture', 'Merci pour votre confiance.'],
+];
+const ago = (d?: string | null) => {
+  if (!d) return 'jamais';
+  const m = Math.round((Date.now() - new Date(d).getTime()) / 60000);
+  return m < 2 ? 'à l’instant' : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : `le ${shortDate(d)}`;
+};
 const CLIENT_TYPES = [['grossiste', 'Grossiste'], ['detaillant', 'Détaillant'], ['restaurant', 'Restaurant'], ['supermarche', 'Supermarché'],
   ['locataire_froid', 'Locataire de chambre'], ['autre', 'Autre']].map(([value, label]) => ({ value, label }));
 const DEPOT_TYPES = [{ value: 'frozen', label: 'Congelé' }, { value: 'chilled', label: 'Frais' }, { value: 'dry', label: 'Sec' }, { value: 'mixed', label: 'Mixte' }];
@@ -51,8 +72,9 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
-export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
+export function Settings({ profile, onSignOut, onProfileChange, onStartDemo, initialPanel }: {
   profile: Profile; onSignOut: () => void; onProfileChange: () => void; onStartDemo?: () => void;
+  initialPanel?: { p?: SettingsPanel; n: number };
 }) {
   const manage = canManage(profile.role);
   const finance = canSeeFinance(profile.role);
@@ -68,7 +90,9 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
   const [depots, setDepots] = useState<Depot[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [team, setTeam] = useState<Member[]>([]);
+  const [company, setCompany] = useState<Record<string, string>>({});
+  const [me, setMe] = useState({ name: profile.full_name ?? '', phone: profile.phone ?? '' });
   const [demoInstalled, setDemoInstalled] = useState(false);
 
   const refresh = async () => {
@@ -81,14 +105,14 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
     setDepots((d.data ?? []) as Depot[]);
     setProducts((p.data ?? []) as Product[]);
     setClients((c.data ?? []) as Client[]);
-    if (admin) {
-      const { data } = await supabase.from('profiles').select('*').order('created_at');
-      setUsers((data ?? []) as Profile[]);
-      rpc<{ installed: boolean }>('demo_status', {}).then((r) => setDemoInstalled(r.installed)).catch(() => undefined);
-    }
+    rpc<Member[]>('team', {}).then(setTeam).catch(() => undefined);
+    const { data: cs } = await supabase.from('app_settings').select('key,value');
+    setCompany(Object.fromEntries(((cs ?? []) as { key: string; value: string }[]).map((r) => [r.key, r.value])));
+    if (admin) rpc<{ installed: boolean }>('demo_status', {}).then((r) => setDemoInstalled(r.installed)).catch(() => undefined);
     reloadRooms();
   };
   useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialPanel?.p) setPanel(initialPanel.p); }, [initialPanel?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
   const num = (s?: string) => (s === undefined || s === '' ? null : Number(String(s).replace(',', '.').replace(/\s/g, '')));
@@ -159,11 +183,34 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
     setEdit(null); setDone(active ? 'Réactivé.' : 'Archivé : il n’apparaît plus dans les listes de saisie.'); refresh();
   };
 
-  const setRole = async (id: string, role: string) => {
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
-    if (error) setError(error.message); else refresh();
+  const setMember = async (id: string, patch: { role?: string; active?: boolean; depot?: string }) => {
+    setBusy(true); setError(null);
+    try {
+      await rpc('admin_set_user', { p_user: id, p_role: patch.role ?? null, p_active: patch.active ?? null, p_depot: patch.depot ?? null });
+      if (patch.active === true) await supabase.from('tasks').update({ status: 'resolue' }).eq('dedupe_key', `compte:${id}`);
+      refresh();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
+  const saveMe = async () => {
+    setBusy(true); setError(null);
+    const { error } = await supabase.from('profiles').update({ full_name: me.name.trim(), phone: me.phone || null }).eq('id', profile.id);
+    setBusy(false);
+    if (error) { setError(error.message); return; }
+    setPanel(null); setDone('Profil mis à jour.'); onProfileChange();
+  };
+
+  const saveCompany = async () => {
+    setBusy(true); setError(null);
+    try {
+      for (const [k] of COMPANY_FIELDS) await rpc('set_setting', { p_key: k, p_value: company[k] ?? '' });
+      setPanel(null); setDone('Informations de facturation enregistrées.');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const pending = team.filter((t) => !t.active);
+  const leads = team.filter((t) => t.active && (t.role === 'admin' || t.role === 'manager'));
+  const mine = team.find((t) => t.id === profile.id);
   const current = edit?.id ? (edit.kind === 'depot' ? depots : edit.kind === 'product' ? products : clients).find((x) => x.id === edit.id) : undefined;
   const sections: { key: Panel; icon: LucideIcon; color: string; title: string; sub: string; show: boolean }[] = [
     { key: 'notifications', icon: Bell, color: '#FF3B30', title: 'Notifications du moteur', sub: `iPhone · Telegram${profile.telegram_chat_id ? ' lié' : ''}`, show: true },
@@ -171,7 +218,9 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
     { key: 'rooms', icon: Snowflake, color: '#007AFF', title: 'Chambres froides', sub: `${rooms.length} chambre${rooms.length > 1 ? 's' : ''}`, show: manage },
     { key: 'products', icon: Package, color: '#FF9500', title: 'Produits', sub: `${products.filter((p) => p.active).length} actif(s)`, show: manage },
     { key: 'clients', icon: Users, color: '#34C759', title: 'Clients', sub: `${clients.filter((c) => c.active).length} actif(s)`, show: finance },
-    { key: 'users', icon: UserCog, color: '#AF52DE', title: 'Utilisateurs et rôles', sub: `${users.length} compte(s)`, show: admin },
+    { key: 'team', icon: UserCog, color: '#AF52DE', title: 'Équipe et accès',
+      sub: pending.length ? `${pending.length} compte(s) à valider` : `${team.filter((t) => t.active).length} membre(s)`, show: true },
+    { key: 'company', icon: Building2, color: '#1a237e', title: 'Entreprise (factures)', sub: company.company_name || 'À compléter', show: admin },
     { key: 'demo', icon: Play, color: '#8E8E93', title: 'Démo en direct', sub: demoInstalled ? 'Installée · relancer ou supprimer' : 'Une journée type jouée en direct', show: admin && !!onStartDemo },
   ];
 
@@ -183,6 +232,22 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
         <p className="rounded-2xl bg-surface-card text-caption text-text-secondary px-4 py-3">
           Pour démarrer : 1) vos entrepôts, 2) leurs chambres froides, 3) vos produits, 4) vos clients.
         </p>
+      )}
+      <button onClick={() => { setMe({ name: profile.full_name ?? '', phone: profile.phone ?? '' }); setPanel('profile'); }}
+        className="w-full flex items-center gap-3 bg-surface-card border border-border-default rounded-2xl p-4 text-left">
+        <Avatar name={profile.full_name} url={profile.avatar_url} size={56} />
+        <span className="flex-1 min-w-0">
+          <span className="block text-body font-semibold text-text-primary truncate">{profile.full_name || profile.email}</span>
+          <span className="block text-caption text-text-secondary truncate">{profile.email}</span>
+          <span className="block text-caption text-brand font-semibold">{ROLE_LABEL[profile.role]}{mine?.depot ? ` · ${mine.depot}` : ''}</span>
+        </span>
+        <ChevronRight size={18} className="text-text-muted" />
+      </button>
+      {leads.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <div className="flex -space-x-2">{leads.slice(0, 4).map((l) => <span key={l.id} className="ring-2 ring-surface-page rounded-full"><Avatar name={l.full_name} url={l.avatar_url} size={24} /></span>)}</div>
+          <p className="text-caption text-text-secondary">Responsables : {leads.map((l) => `${l.full_name.split(' ')[0]} (${ROLE_LABEL[l.role]})`).join(', ')}</p>
+        </div>
       )}
       <Group>
         {sections.filter((s) => s.show).map((s, i) => (
@@ -308,24 +373,89 @@ export function Settings({ profile, onSignOut, onProfileChange, onStartDemo }: {
         )}
       </Sheet>
 
-      {/* ── Utilisateurs ── */}
-      <Sheet open={panel === 'users'} title="Utilisateurs" onClose={() => setPanel(null)}>
-        <p className="text-caption text-text-secondary">Chaque personne crée son compte depuis l’écran de connexion, puis vous lui attribuez son rôle ici.</p>
-        <Group>
-          {users.map((u, i) => (
-            <div key={u.id} className={cx('flex items-center justify-between gap-3 px-4 py-3', i > 0 && 'border-t border-border-default')}>
-              <div className="min-w-0 flex items-center gap-2">
-                <p className="text-body truncate">{u.full_name || '—'}</p>
-                {u.id === profile.id && <Badge tone="info">Vous</Badge>}
+      {/* ── Mon profil ── */}
+      <Sheet open={panel === 'profile'} title="Mon profil" onClose={() => setPanel(null)}>
+        <div className="flex flex-col items-center gap-2 py-2">
+          <Avatar name={profile.full_name} url={profile.avatar_url} size={80} />
+          <p className="text-caption text-text-secondary">{mine?.provider === 'google' ? 'Connecté avec Google' : 'Connecté par email'}</p>
+        </div>
+        <Field label="Nom affiché"><Input value={me.name} onChange={(e) => setMe({ ...me, name: e.target.value })} /></Field>
+        <Field label="Téléphone"><Input inputMode="tel" value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} placeholder="77 000 00 00" /></Field>
+        <div className="rounded-2xl bg-surface-subtle p-4 space-y-1 text-caption text-text-secondary">
+          <p>Email : <b className="text-text-primary">{profile.email}</b></p>
+          <p>Rôle : <b className="text-text-primary">{ROLE_LABEL[profile.role]}</b> — {ROLE_HELP[profile.role]}</p>
+          {mine?.depot && <p>Entrepôt : <b className="text-text-primary">{mine.depot}</b></p>}
+          <p>Dernière connexion : {ago(mine?.last_sign_in_at)}</p>
+          <p className="pt-1">Le rôle est attribué par un administrateur.</p>
+        </div>
+        <ErrorNote error={error} />
+        <Button className="w-full" disabled={busy || !me.name.trim()} onClick={saveMe}>Enregistrer</Button>
+        <Button variant="ghost" className="w-full" onClick={onSignOut}>Se déconnecter</Button>
+      </Sheet>
+
+      {/* ── Équipe ── */}
+      <Sheet open={panel === 'team'} title="Équipe et accès" onClose={() => setPanel(null)}>
+        <p className="flex gap-2 text-caption text-text-secondary"><ShieldCheck size={16} className="text-brand shrink-0" />
+          Tout nouveau compte (email ou Google) est bloqué tant qu’un administrateur ne l’a pas validé. Un compte désactivé perd l’accès immédiatement.</p>
+        {admin && pending.length > 0 && <>
+          <p className="text-caption text-text-secondary px-1">À valider</p>
+          {pending.map((u) => (
+            <div key={u.id} className="rounded-2xl border border-status-warning p-3 space-y-2">
+              <div className="flex items-center gap-3">
+                <Avatar name={u.full_name} url={u.avatar_url} size={40} />
+                <div className="min-w-0"><p className="text-body font-semibold truncate">{u.full_name || '—'}</p>
+                  <p className="text-caption text-text-muted truncate">{u.email} · {u.provider === 'google' ? 'Google' : 'email'} · demandé {ago(u.created_at)}</p></div>
               </div>
-              <select disabled={u.id === profile.id} value={u.role} onChange={(e) => setRole(u.id, e.target.value)}
-                className="rounded-xl border border-border-strong px-2 py-2 text-body bg-surface-card">
-                {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              <div className="flex gap-2">
+                {(['magasinier', 'manager', 'cfo'] as const).map((r) => (
+                  <button key={r} disabled={busy} onClick={() => setMember(u.id, { role: r, active: true })}
+                    className="flex-1 rounded-xl bg-brand text-white py-2 text-caption font-semibold">{ROLE_LABEL[r]}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>}
+        <p className="text-caption text-text-secondary px-1">Membres</p>
+        <Group>
+          {team.filter((u) => u.active).map((u, i) => (
+            <div key={u.id} className={cx('px-4 py-3 space-y-2', i > 0 && 'border-t border-border-default')}>
+              <div className="flex items-center gap-3">
+                <Avatar name={u.full_name} url={u.avatar_url} size={40} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-body truncate">{u.full_name || '—'} {u.id === profile.id && <Badge tone="info">Vous</Badge>}</p>
+                  <p className="text-caption text-text-muted truncate">{ROLE_LABEL[u.role]}{u.depot ? ` · ${u.depot}` : ''}{admin && u.email ? ` · ${u.email}` : ''}</p>
+                  {admin && <p className="text-micro text-text-muted">Vu {ago(u.last_seen_at ?? u.last_sign_in_at)}{u.provider ? ` · ${u.provider === 'google' ? 'Google' : 'email'}` : ''}</p>}
+                </div>
+              </div>
+              {admin && u.id !== profile.id && (
+                <div className="flex gap-2">
+                  <select value={u.role} disabled={busy} onChange={(e) => setMember(u.id, { role: e.target.value })}
+                    className="flex-1 rounded-xl border border-border-strong px-2 py-2 text-caption bg-surface-card">
+                    {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                  <select value="" disabled={busy} onChange={(e) => e.target.value && setMember(u.id, { depot: e.target.value })}
+                    className="flex-1 rounded-xl border border-border-strong px-2 py-2 text-caption bg-surface-card">
+                    <option value="">{u.depot ?? 'Entrepôt…'}</option>
+                    {activeDepots.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <button disabled={busy} onClick={() => setMember(u.id, { active: false })}
+                    className="rounded-xl bg-status-danger-bg text-status-danger px-3 text-caption font-semibold">Désactiver</button>
+                </div>
+              )}
             </div>
           ))}
         </Group>
         <ErrorNote error={error} />
+      </Sheet>
+
+      {/* ── Entreprise ── */}
+      <Sheet open={panel === 'company'} title="Entreprise (factures)" onClose={() => setPanel(null)}>
+        <p className="text-caption text-text-secondary">Ces informations figurent en tête de chaque facture.</p>
+        {COMPANY_FIELDS.map(([k, label, ph]) => (
+          <Field key={k} label={label}><Input value={company[k] ?? ''} placeholder={ph} onChange={(e) => setCompany({ ...company, [k]: e.target.value })} /></Field>
+        ))}
+        <ErrorNote error={error} />
+        <Button className="w-full" disabled={busy} onClick={saveCompany}>Enregistrer</Button>
       </Sheet>
 
       <Sheet open={panel === 'notifications'} title="Notifications" onClose={() => setPanel(null)}>

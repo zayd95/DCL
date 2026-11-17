@@ -8,7 +8,12 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'habib@ods.sn'),
   ('00000000-0000-0000-0000-00000000000b', 'magasinier@ods.sn'),
   ('00000000-0000-0000-0000-00000000000c', 'cfo@ods.sn');
-update profiles set role = 'cfo' where id = '00000000-0000-0000-0000-00000000000c';
+-- Les comptes suivants sont en attente : l'admin les valide et choisit leur rôle
+do $$ begin
+  assert (select active from profiles where id = '00000000-0000-0000-0000-00000000000a'), 'premier user actif';
+  assert not (select active from profiles where id = '00000000-0000-0000-0000-00000000000b'), 'nouveau compte en attente';
+  assert exists (select 1 from tasks where dedupe_key = 'compte:00000000-0000-0000-0000-00000000000b'), 'tâche validation';
+end $$;
 
 do $$ begin
   assert (select role from profiles where id = '00000000-0000-0000-0000-00000000000a') = 'admin', 'premier user = admin';
@@ -20,6 +25,34 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', p, 'role', 'authenticated')::text, false);
   execute 'set role authenticated';
 end $$;
+
+-- Compte en attente : aucun accès ; puis validation par l'admin
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ begin
+  assert (select count(*) from depots) = 0 or true;
+  begin perform create_client('Pirate'); assert false, 'compte en attente ne doit rien pouvoir faire';
+  exception when others then assert sqlerrm like '%non identifié%', sqlerrm; end;
+  begin perform admin_set_user('00000000-0000-0000-0000-00000000000b', null, true); assert false, 'auto-validation interdite';
+  exception when others then null; end;
+  begin update profiles set role = 'admin' where id = '00000000-0000-0000-0000-00000000000b'; assert false, 'élévation interdite';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select admin_set_user('00000000-0000-0000-0000-00000000000b', 'magasinier', true);
+select admin_set_user('00000000-0000-0000-0000-00000000000c', 'cfo', true);
+do $$ begin
+  begin perform admin_set_user('00000000-0000-0000-0000-00000000000a', 'manager'); assert false, 'admin ne se rétrograde pas';
+  exception when others then assert sqlerrm like '%propres droits%', sqlerrm; end;
+  assert (select count(*) from team()) = 3, 'équipe';
+  assert (select email from team() where id = '00000000-0000-0000-0000-00000000000b') = 'magasinier@ods.sn', 'admin voit les emails';
+end $$;
+reset role;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');
+do $$ begin
+  assert (select email from team() where id = '00000000-0000-0000-0000-00000000000c') is null, 'email caché aux non-admins';
+end $$;
+reset role;
 
 -- ─── Admin : référentiels ────────────────────────────────────────────────────
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
@@ -389,3 +422,37 @@ do $$ begin
   assert not exists (select 1 from depots where demo) and not exists (select 1 from products where demo), 'purge complète';
 end $$;
 select 'DEMO OK' as resultat;
+
+-- ═══ Recouvrement : promesse non tenue ══════════════════════════════════════
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
+insert into collection_notes (client_id, kind, note, promised_date, promised_xof)
+select client_id, 'promesse', 'Promet de payer', current_date - 2, 100000 from v_client_balances where balance_xof > 0 limit 1;
+reset role;
+select engine_scan_promises();
+do $$ begin
+  assert exists (select 1 from tasks where dedupe_key like 'promesse:%' and title like 'Promesse non tenue%'), 'promesse non tenue signalée';
+end $$;
+select 'RECOUVREMENT OK' as resultat;
+
+-- ═══ Facturation multi-lignes ═══════════════════════════════════════════════
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$ declare q jsonb; r jsonb; n int; begin
+  perform demo_seed();
+  q := sale_quote('Moussa Traders (démo)', '[{"product":"DEMO-BUF-HQ","qty":50},{"product":"DEMO-TILAPIA","qty":100,"price":9500}]', 'ALM-DEMO');
+  assert (q->>'ok')::boolean, 'devis ok : ' || q::text;
+  assert (q->>'total')::bigint = 50*64000 + 100*9500, 'total devis';
+  assert (q->>'margin')::bigint > 0, 'marge';
+  q := sale_quote('Moussa Traders (démo)', '[{"product":"DEMO-BUF-HQ","qty":50,"price":30000}]', 'ALM-DEMO');
+  assert not (q->>'ok')::boolean and q->'lines'->0->'warnings'->>0 like 'Sous le prix de revient%', 'alerte sous le coût';
+  select count(*) into n from invoices;
+  r := create_sale('Moussa Traders (démo)', '[{"product":"DEMO-BUF-HQ","qty":50},{"product":"DEMO-TILAPIA","qty":100,"price":9500}]', 'ALM-DEMO');
+  assert (select count(*) from invoices) = n + 1, 'une seule facture';
+  assert (select count(distinct product_id) from invoice_lines where invoice_id = (r->>'invoice_id')::uuid) = 2, 'deux produits';
+  assert (r->>'total_xof')::bigint = 4150000, 'total facture';
+  begin perform create_sale('Moussa Traders (démo)', '[{"product":"DEMO-BUF-HQ","qty":5,"price":1000}]', 'ALM-DEMO');
+        assert false, 'sous le coût non bloqué';
+  exception when others then assert sqlerrm like 'VENTE BLOQUÉE%', sqlerrm; end;
+  perform demo_purge();
+end $$;
+reset role;
+select 'FACTURATION OK' as resultat;

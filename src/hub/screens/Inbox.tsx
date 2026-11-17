@@ -13,7 +13,7 @@ export interface Task {
 
 const KIND_LABEL: Record<string, string> = {
   rupture: 'Rupture', reappro: 'Réappro', fefo: 'FEFO', creance: 'Impayé', credit: 'Crédit',
-  anomalie: 'Contrôle', document: 'Document', chambre: 'Chambre', location: 'Location', donnees: 'Données',
+  anomalie: 'Contrôle', document: 'Document', chambre: 'Chambre', location: 'Location', donnees: 'Données', equipe: 'Équipe',
 };
 const STATUS_LABEL: Record<string, string> = { validee: 'Validé', refusee: 'Refusé', resolue: 'Résolu', echec: 'Échec' };
 
@@ -23,8 +23,9 @@ const ago = (d: string) => {
 };
 
 /** Raccourci vers l'opération qui règle la tâche (au lieu d'un simple « Noté »). */
-function shortcut(t: Task): { label: string; form: OpForm; preset: Record<string, string> } | null {
+function shortcut(t: Task): { label: string; form: OpForm | 'team'; preset: Record<string, string> } | null {
   const k = t.dedupe_key ?? '';
+  if (k.startsWith('compte:')) return { label: 'Valider le compte', form: 'team', preset: {} };
   const part = (i: number) => k.split(':')[i] ?? '';
   if (k.startsWith('sanschambre:')) return { label: 'Ranger le lot', form: 'deplacer', preset: { lot_id: part(1) } };
   if (k.startsWith('cout:')) return { label: 'Saisir le coût', form: 'completer', preset: { lot_id: part(1) } };
@@ -32,7 +33,7 @@ function shortcut(t: Task): { label: string; form: OpForm; preset: Record<string
   if (k.startsWith('chambre:')) return { label: 'Transférer du stock', form: 'transfert', preset: {} };
   if (k.startsWith('location:')) return { label: 'Gérer la location', form: 'fin_location', preset: { contract: part(1) } };
   if (t.kind === 'creance') {
-    const client = t.title.replace(/^Relancer\s+/, '').trim();
+    const client = t.title.replace(/^(Relancer|Promesse non tenue :)\s+/, '').trim();
     return { label: 'Encaisser', form: 'encaissement', preset: { client } };
   }
   if (t.kind === 'fefo') return { label: 'Vendre en priorité', form: 'vente', preset: {} };
@@ -47,7 +48,7 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
-  const { openOp } = useNav();
+  const { openOp, openSettings } = useNav();
 
   const load = useCallback(async () => {
     const [o, d] = await Promise.all([
@@ -113,7 +114,7 @@ export function Inbox({ profile, onCount }: { profile: Profile; onCount: (n: num
               </a>
             )}
             {!t.action && shortcut(t) && (
-              <button onClick={() => { const sc = shortcut(t)!; openOp(sc.form, sc.preset); }}
+              <button onClick={() => { const sc = shortcut(t)!; if (sc.form === 'team') openSettings('team'); else openOp(sc.form, sc.preset); }}
                 className="flex-1 flex items-center justify-center gap-1 bg-brand text-white rounded-xl py-2 text-body font-bold">
                 {shortcut(t)!.label}
               </button>
