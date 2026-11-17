@@ -17,7 +17,25 @@ import {
 } from "./tools.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
+
+// Modèles essayés dans l'ordre (offre gratuite) : on passe au suivant si un modèle est retiré ou saturé.
+const GEMINI_MODELS = [
+  ...(Deno.env.get("GEMINI_MODEL") ? [Deno.env.get("GEMINI_MODEL")!] : []),
+  "gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest",
+];
+async function geminiCall(key: string, body: unknown): Promise<Response> {
+  let last: Response | null = null;
+  for (const m of GEMINI_MODELS) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify(body),
+    });
+    if (res.ok || ![404, 429, 503].includes(res.status)) return res;
+    last = res;
+  }
+  return last!;
+}
 const MAX_STEPS = 6;
 
 type Msg = { role: "user" | "model"; text: string };
@@ -45,19 +63,12 @@ Règles :
 }
 
 async function gemini(system: string, contents: Content[], withTools = true): Promise<Part[]> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
-      body: JSON.stringify({
+  const res = await geminiCall(GEMINI_API_KEY, {
         systemInstruction: { parts: [{ text: system }] },
         contents,
         tools: withTools ? [{ functionDeclarations: [...readTools, ...writeTools] }] : undefined,
         generationConfig: { temperature: 0.2 },
-      }),
-    },
-  );
+      });
   if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   return data?.candidates?.[0]?.content?.parts ?? [];
