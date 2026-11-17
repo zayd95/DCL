@@ -218,7 +218,7 @@ export function summarizeWrite(name: string, a: Args): string {
         (a.date_expiration ? `, expire le ${a.date_expiration}` : "") + (a.depot ? ` à ${a.depot}` : "") +
         (a.chambre ? `, chambre ${a.chambre}` : "") + (a.client_proprietaire ? ` (marchandise de ${a.client_proprietaire})` : "");
     case "transfert":
-      return `Transfert de ${qty(a.quantite)} × ${a.produit} de ${a.depot_depart} vers ${a.depot_arrivee}`;
+      return `Transfert de ${qty(a.quantite)} × ${a.produit} de ${a.depot_depart} vers ${a.depot_arrivee}${a.chambre_arrivee ? `, chambre ${a.chambre_arrivee}` : ""}`;
     case "inventaire":
       return `${a.perte ? "Perte déclarée" : "Correction d'inventaire"} : ${a.produit} lot ${a.numero_lot} → ${qty(a.quantite_comptee)} (motif : ${a.motif})`;
     case "creer_client":

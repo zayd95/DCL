@@ -14,7 +14,25 @@ import webpush from "npm:web-push@3.6.7";
 import { buildDocumentTask, telegramMessage } from "./logic.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
+
+// Modèles essayés dans l'ordre (offre gratuite) : on passe au suivant si un modèle est retiré ou saturé.
+const GEMINI_MODELS = [
+  ...(Deno.env.get("GEMINI_MODEL") ? [Deno.env.get("GEMINI_MODEL")!] : []),
+  "gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest",
+];
+async function geminiCall(key: string, body: unknown): Promise<Response> {
+  let last: Response | null = null;
+  for (const m of GEMINI_MODELS) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify(body),
+    });
+    if (res.ok || ![404, 429, 503].includes(res.status)) return res;
+    last = res;
+  }
+  return last!;
+}
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const APP_URL = Deno.env.get("APP_URL") ?? "https://depotek.vercel.app";
 
@@ -86,14 +104,10 @@ ou null si tu n'es pas sûr. Pour un reçu, choisis le client exact dans le rép
 Catalogue : ${JSON.stringify(products ?? [])}
 Clients : ${JSON.stringify((clients ?? []).map((c) => c.name))}`;
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
-    body: JSON.stringify({
+  const res = await geminiCall(GEMINI_API_KEY, {
       contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: doc.mime, data: toBase64(bytes) } }] }],
       generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: DOC_SCHEMA },
-    }),
-  });
+    });
   if (!res.ok) return void await fail(`Gemini ${res.status} : ${(await res.text()).slice(0, 200)}`);
   const out = await res.json();
   let x: Any;
