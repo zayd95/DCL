@@ -15,23 +15,37 @@ import { buildDocumentTask, telegramMessage } from "./logic.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
-// Modèles essayés dans l'ordre (offre gratuite) : on passe au suivant si un modèle est retiré ou saturé.
+// Modèles essayés dans l'ordre (offre gratuite) : on passe au suivant si un modèle est retiré, saturé ou trop lent.
 const GEMINI_MODELS = [
   ...(Deno.env.get("GEMINI_MODEL") ? [Deno.env.get("GEMINI_MODEL")!] : []),
-  "gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest",
+  "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-flash-latest",
 ];
-async function geminiCall(key: string, body: unknown): Promise<Response> {
+const GEMINI_TIMEOUT_MS = 45000;
+async function geminiCall(key: string, body: Record<string, unknown>): Promise<Response> {
   let last: Response | null = null;
+  let lastErr = "";
   for (const m of GEMINI_MODELS) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify(body),
-    });
-    if (res.ok || ![404, 429, 503].includes(res.status)) return res;
-    last = res;
+    // Réflexion minimale : réponses rapides (les modèles 3.x acceptent thinkingLevel)
+    const gen = { ...(body.generationConfig as Record<string, unknown> ?? {}) };
+    if (m.startsWith("gemini-3")) gen.thinkingConfig = { thinkingLevel: "low" };
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({ ...body, generationConfig: gen }),
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      });
+      console.log(`gemini ${m} ${res.status} ${Date.now() - t0}ms`);
+      if (res.ok || ![400, 404, 429, 500, 503].includes(res.status)) return res;
+      last = res;
+    } catch (e) {
+      lastErr = (e as Error).name === "TimeoutError" ? `délai dépassé (${m})` : (e as Error).message;
+      console.log(`gemini ${m} échec ${Date.now() - t0}ms : ${lastErr}`);
+    }
   }
-  return last!;
+  if (last) return last;
+  throw new Error(`Gemini indisponible : ${lastErr}`);
 }
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const APP_URL = Deno.env.get("APP_URL") ?? "https://depotek.vercel.app";
