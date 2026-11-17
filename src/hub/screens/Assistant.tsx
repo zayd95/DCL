@@ -74,12 +74,18 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
   }, [messages]);
 
   const call = async (body: Record<string, unknown>) => {
-    const { data, error } = await supabase.functions.invoke('assistant', { body });
+    // Le téléphone n'attend jamais plus de 60 s : au-delà, message clair plutôt qu'un écran figé
+    const { data, error } = await supabase.functions.invoke('assistant', { body, timeout: 60000 }).catch(() => ({
+      data: null,
+      error: new Error("L'assistant met trop de temps à répondre. Réessayez dans un instant."),
+    }));
     if (error) {
       // Message d'erreur renvoyé par la fonction si disponible
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ctx = (error as any).context;
-      let detail = error.message;
+      let detail = /fetch|abort|timeout|send a request/i.test(error.message)
+        ? "L'assistant met trop de temps à répondre. Réessayez dans un instant."
+        : error.message;
       try { detail = (await ctx?.json())?.error ?? detail; } catch { /* corps non JSON */ }
       throw new Error(detail);
     }
