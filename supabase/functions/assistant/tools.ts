@@ -438,3 +438,49 @@ function unwrap<T>(res: { data: T; error: any }): T {
 function stripUndefined(o: Args): Args {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== ""));
 }
+
+// ─── Vérification avant de proposer une écriture ─────────────────────────────
+// Évite de proposer une opération vouée à l'échec (chambre ou produit inventés) :
+// l'erreur est renvoyée au modèle, qui corrige ou pose la question.
+export async function checkOps(db: SupabaseClient, ops: { tool: string; args: Args }[]): Promise<string[]> {
+  const problems: string[] = [];
+  const created = new Set(ops.filter((o) => o.tool === "creer_produit")
+    .flatMap((o) => [String(o.args.sku ?? "").toLowerCase(), String(o.args.nom ?? "").toLowerCase()]));
+  let rooms: { depot_code: string; depot_name: string; room_code: string; room_name: string; status: string; categories: string[] | null; fill_pct: number | null }[] | null = null;
+  let products: { sku: string; name: string }[] | null = null;
+  const low = (x: unknown) => String(x ?? "").trim().toLowerCase();
+  for (const [i, o] of ops.entries()) {
+    const n = ops.length > 1 ? `Opération ${i + 1} : ` : "";
+    const room = o.args.chambre ?? o.args.chambre_arrivee;
+    if (room && ["reception_lot", "transfert", "deplacer_lot", "louer_chambre"].includes(o.tool)) {
+      rooms ??= unwrap(await db.from("v_storage_rooms").select("depot_code,depot_name,room_code,room_name,status,categories,fill_pct")) as typeof rooms;
+      const depot = low(o.tool === "transfert" ? o.args.depot_arrivee : (o.args.depot ?? o.args.entrepot));
+      const match = rooms!.filter((r) => (low(r.room_code) === low(room) || low(r.room_name) === low(room)) &&
+        (!depot || low(r.depot_code) === depot || low(r.depot_name).includes(depot)));
+      if (match.length === 0) {
+        problems.push(`${n}la chambre « ${room} » n'existe pas. Chambres disponibles : ` +
+          rooms!.map((r) => `${r.room_code} « ${r.room_name} » (${r.depot_code}, ${r.status}${r.fill_pct != null ? `, ${r.fill_pct} %` : ""}${r.categories?.length ? `, ${r.categories.join("/")}` : ""})`).join(" ; ") +
+          ". Choisis une chambre adaptée au produit et précise son entrepôt, ou demande à l'utilisateur.");
+      } else if (match.length > 1) {
+        problems.push(`${n}la chambre « ${room} » existe dans plusieurs entrepôts (${match.map((r) => r.depot_code).join(", ")}) : précise l'entrepôt.`);
+      } else if (o.tool !== "transfert" && !o.args.depot && !o.args.entrepot) {
+        // On complète l'entrepôt pour que la saisie soit sans ambiguïté
+        if (o.tool === "louer_chambre") o.args.entrepot = match[0].depot_code; else o.args.depot = match[0].depot_code;
+        o.args.chambre = match[0].room_code;
+      }
+    }
+    if (o.args.produit && ["reception_lot", "sortie_vente", "transfert", "inventaire", "completer_lot", "deplacer_lot"].includes(o.tool) &&
+      !created.has(low(o.args.produit))) {
+      products ??= unwrap(await db.from("products").select("sku,name").eq("active", true)) as typeof products;
+      const p = low(o.args.produit);
+      const ok = products!.some((x) => low(x.sku) === p) || products!.filter((x) => low(x.name).includes(p)).length === 1;
+      if (!ok) {
+        const close = products!.filter((x) => p.split(/\s+/).some((w) => w.length > 3 && low(x.name).includes(w))).slice(0, 8);
+        problems.push(`${n}produit « ${o.args.produit} » introuvable ou ambigu. ` +
+          (close.length ? `Produits proches : ${close.map((x) => `${x.sku} (${x.name})`).join(", ")}. Utilise le SKU exact.` :
+            "Propose de le créer avec creer_produit dans la même réponse."));
+      }
+    }
+  }
+  return problems;
+}
