@@ -18,16 +18,19 @@ import {
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 
-// Modèles essayés dans l'ordre (offre gratuite ; flash-lite d'abord : ~1 s par étape) : on passe au suivant si un modèle est retiré, saturé ou trop lent.
+// Modèles essayés dans l'ordre (offre gratuite) : on passe au suivant si un modèle est retiré, saturé ou trop lent.
 const GEMINI_MODELS = [
   ...(Deno.env.get("GEMINI_MODEL") ? [Deno.env.get("GEMINI_MODEL")!] : []),
-  "gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest",
+  "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-flash-latest",
 ];
-const GEMINI_TIMEOUT_MS = 15000;
+const GEMINI_TIMEOUT_MS = 12000;
+// Un modèle saturé ou lent est mis de côté 5 minutes : les étapes suivantes partent directement sur le suivant
+const cooldown = new Map<string, number>();
 async function geminiCall(key: string, body: Record<string, unknown>): Promise<Response> {
   let last: Response | null = null;
   let lastErr = "";
-  for (const m of GEMINI_MODELS) {
+  const ready = GEMINI_MODELS.filter((m) => (cooldown.get(m) ?? 0) < Date.now());
+  for (const m of ready.length ? ready : GEMINI_MODELS) {
     // Réflexion minimale : réponses rapides (les modèles 3.x acceptent thinkingLevel)
     const gen = { ...(body.generationConfig as Record<string, unknown> ?? {}) };
     if (m.startsWith("gemini-3")) gen.thinkingConfig = { thinkingLevel: "low" };
@@ -41,9 +44,11 @@ async function geminiCall(key: string, body: Record<string, unknown>): Promise<R
       });
       console.log(`gemini ${m} ${res.status} ${Date.now() - t0}ms`);
       if (res.ok || ![400, 404, 429, 500, 503].includes(res.status)) return res;
+      cooldown.set(m, Date.now() + 5 * 60_000);
       last = res;
     } catch (e) {
       lastErr = (e as Error).name === "TimeoutError" ? `délai dépassé (${m})` : (e as Error).message;
+      cooldown.set(m, Date.now() + 5 * 60_000);
       console.log(`gemini ${m} échec ${Date.now() - t0}ms : ${lastErr}`);
     }
   }
@@ -67,6 +72,10 @@ Date du jour : ${today} (Africa/Dakar). Utilisateur : ${name || "inconnu"}, rôl
 Règles :
 - Ne JAMAIS inventer un chiffre : utilise toujours un outil pour lire les données réelles.
 - Réponds en français, court et clair (lu sur téléphone). Montants en FCFA avec séparateurs (ex. 1 250 000 FCFA).
+- Mise en forme : commence par la réponse directe en une phrase. Ensuite, si besoin, une liste à puces "- " (5 lignes max),
+  chiffres clés en **gras**. Pas de tableau, pas de titre "#", pas de jargon technique (SKU, FEFO, RPC…) sauf si on te le demande.
+- Comprends le langage courant et le wolof-français ("bayal", "jaay", "xaalis"…), les fautes et les abréviations (ctn = cartons, kg, t).
+- Si la question reprend un message précédent ("et pour Sodida ?", "le même pour Moussa"), utilise le contexte de la conversation.
 - Pour toute écriture (vente, encaissement, réception, transfert, inventaire, client, location de chambre, déplacement de lot), appelle l'outil
   d'écriture correspondant : le système demandera lui-même la confirmation à l'utilisateur. Ne demande pas "voulez-vous confirmer".
 - S'il manque une information indispensable (client, quantité, prix si aucun prix par défaut…), pose UNE question courte.

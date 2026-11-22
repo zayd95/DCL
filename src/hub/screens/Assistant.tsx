@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Send, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search } from 'lucide-react';
+import { Mic, ArrowUp, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search, Copy, Volume2, RotateCcw, Square } from 'lucide-react';
 import { supabase, rpc, type Profile, canSeeFinance, uploadDocument } from '../supabase';
 import { fcfa, useDocPicker } from '../ui';
 import { cx as cn } from '../cx';
@@ -28,7 +28,10 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recRef = useRef<any>(null);
+  const [copied, setCopied] = useState<number | null>(null);
   const finance = canSeeFinance(profile.role);
   const [welcome, setWelcome] = useState<Welcome | null>(null);
 
@@ -100,7 +103,7 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
     setInput('');
     setBusy(true);
     try {
-      const history = next.map(({ role, text }) => ({ role, text }));
+      const history = next.filter((m) => !m.text.startsWith('⚠️')).slice(-16).map(({ role, text }) => ({ role, text }));
       const res = await call({ messages: history });
       setMessages((m) => [...m, { role: 'model', text: res.reply, action: res.pending_action }]);
     } catch (e) {
@@ -125,19 +128,59 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
     }
   };
 
-  // Dictée vocale (Chrome / Safari), en français
+  // Dictée vocale (Safari / Chrome), en français : le texte s'écrit en direct dans la zone, on relit puis on envoie
   const listen = () => {
+    if (listening) { recRef.current?.stop(); return; }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert('Dictée vocale non disponible sur ce navigateur.'); return; }
+    if (!SR) { setMessages((m) => [...m, { role: 'model', text: '⚠️ Dictée vocale non disponible sur ce navigateur. Utilisez le micro du clavier.' }]); return; }
     const rec = new SR();
     rec.lang = 'fr-FR';
-    rec.interimResults = false;
-    rec.onresult = (e: { results: { 0: { transcript: string } }[] }) => send(e.results[0][0].transcript);
-    rec.onend = () => setListening(false);
+    rec.interimResults = true;
+    rec.continuous = false;
+    const base = input ? input.trimEnd() + ' ' : '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      setInput(base + t);
+    };
+    rec.onend = () => { setListening(false); inputRef.current?.focus(); };
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
     setListening(true);
     rec.start();
   };
+
+  const copy = async (i: number, text: string) => {
+    try { await navigator.clipboard.writeText(text.replace(/\*\*/g, '')); setCopied(i); setTimeout(() => setCopied(null), 1500); } catch { /* presse-papiers refusé */ }
+  };
+  // Lecture à voix haute (synthèse vocale du téléphone, gratuite)
+  const speak = (text: string) => {
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text.replace(/\*\*/g, '').replace(/[•·]/g, ''));
+      u.lang = 'fr-FR';
+      speechSynthesis.speak(u);
+    } catch { /* non disponible */ }
+  };
+  const retry = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUser) return;
+    setMessages((m) => {
+      const cut = m.length - 1 - [...m].reverse().findIndex((x) => x.role === 'user');
+      return m.slice(0, cut);
+    });
+    setTimeout(() => send(lastUser.text), 0);
+  };
+
+  // La zone de saisie grandit avec le texte (jusqu'à ~5 lignes)
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 132) + 'px';
+  }, [input]);
 
   const quick = finance ? QUICK_FINANCE : QUICK_STOCK;
   const first = profile.full_name?.split(' ')[0] || '';
@@ -220,49 +263,113 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
             </div>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-            <div className={cn('max-w-[85%] rounded-2xl px-4 py-3 text-body whitespace-pre-wrap',
-              m.role === 'user' ? 'bg-brand text-white rounded-br-md' : 'bg-surface-card border border-border-default text-text-primary rounded-bl-md')}>
-              {m.text}
-              {m.action && !m.action.state && (
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => decide(i, 'confirm')} disabled={busy}
-                    className="flex-1 flex items-center justify-center gap-1 bg-status-success text-white rounded-xl py-2 font-bold">
-                    <Check size={16} /> Confirmer
-                  </button>
-                  <button onClick={() => decide(i, 'cancel')} disabled={busy}
-                    className="flex-1 flex items-center justify-center gap-1 bg-surface-subtle text-text-primary rounded-xl py-2 font-bold">
-                    <X size={16} /> Annuler
-                  </button>
+        {messages.map((m, i) => {
+          const isErr = m.role === 'model' && m.text.startsWith('⚠️');
+          const isLast = i === messages.length - 1;
+          return (
+            <div key={i} className={cn('flex flex-col', m.role === 'user' ? 'items-end' : 'items-start')}>
+              <div className={cn('max-w-[88%] rounded-[20px] px-4 py-2.5 text-[15px] leading-[1.45]',
+                m.role === 'user' ? 'bg-brand text-white rounded-br-md whitespace-pre-wrap'
+                  : isErr ? 'bg-status-danger/10 text-status-danger rounded-bl-md'
+                  : 'bg-surface-card text-text-primary rounded-bl-md shadow-sm')}>
+                {m.role === 'user' ? m.text : <RichText text={m.text} />}
+                {m.action && !m.action.state && (
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => decide(i, 'confirm')} disabled={busy}
+                      className="flex-1 flex items-center justify-center gap-1 bg-status-success text-white rounded-xl py-2.5 font-bold">
+                      <Check size={16} /> Confirmer
+                    </button>
+                    <button onClick={() => decide(i, 'cancel')} disabled={busy}
+                      className="flex-1 flex items-center justify-center gap-1 bg-surface-subtle text-text-primary rounded-xl py-2.5 font-bold">
+                      <X size={16} /> Annuler
+                    </button>
+                  </div>
+                )}
+              </div>
+              {m.role === 'model' && !m.action && (
+                <div className="flex gap-1 px-1 pt-1 text-text-muted">
+                  {isErr ? (
+                    isLast && <button onClick={retry} disabled={busy} className="flex items-center gap-1 px-2 py-1 text-caption font-semibold text-brand"><RotateCcw size={14} /> Réessayer</button>
+                  ) : (<>
+                    <button onClick={() => copy(i, m.text)} aria-label="Copier" className="p-1.5 rounded-lg active:bg-surface-subtle">
+                      {copied === i ? <Check size={15} className="text-status-success" /> : <Copy size={15} />}
+                    </button>
+                    <button onClick={() => speak(m.text)} aria-label="Lire à voix haute" className="p-1.5 rounded-lg active:bg-surface-subtle"><Volume2 size={15} /></button>
+                  </>)}
                 </div>
               )}
             </div>
+          );
+        })}
+        {busy && (
+          <div className="flex items-center gap-1 bg-surface-card rounded-[20px] rounded-bl-md px-4 py-3.5 w-fit shadow-sm" aria-label="DEPOTEK réfléchit">
+            {[0, 1, 2].map((d) => <span key={d} className="w-2 h-2 rounded-full bg-text-muted animate-bounce" style={{ animationDelay: `${d * 150}ms` }} />)}
           </div>
-        ))}
-        {busy && <div className="text-caption text-text-muted px-2">DEPOTEK réfléchit…</div>}
+        )}
         <div ref={endRef} />
       </div>
 
       {picker.element}
+      {messages.length > 0 && !busy && (
+        <div className="flex gap-2 overflow-x-auto px-3 pb-2 no-scrollbar">
+          {quick.map((q) => (
+            <button key={q} onClick={() => send(q)}
+              className="shrink-0 rounded-full bg-surface-card border border-border-default px-3 py-1.5 text-caption text-text-primary">{q}</button>
+          ))}
+        </div>
+      )}
       <form onSubmit={(e) => { e.preventDefault(); send(input); }}
-        className="px-3 pt-2 pb-24 flex gap-2 items-center bg-surface-page border-t border-border-default">
-        <button type="button" onClick={picker.open} aria-label="Photo d’un document"
-          className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-surface-subtle text-brand">
-          <Camera size={20} />
-        </button>
-        <button type="button" onClick={listen}
-          className={cn('w-11 h-11 rounded-full flex items-center justify-center shrink-0',
-            listening ? 'bg-status-danger text-white animate-pulse' : 'bg-surface-subtle text-brand')}>
-          <Mic size={20} />
-        </button>
-        <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Écrivez ou dictez…"
-          className="flex-1 min-w-0 rounded-full border border-border-strong bg-surface-card px-4 py-3 text-body focus:outline-none focus:border-border-focus" />
-        <button disabled={busy || !input.trim()}
-          className="w-11 h-11 rounded-full bg-brand text-white flex items-center justify-center shrink-0 disabled:opacity-40">
-          <Send size={18} />
-        </button>
+        className="px-3 pt-2 pb-24 bg-surface-page">
+        <div className={cn('flex items-end gap-1 rounded-[24px] border bg-surface-card pl-1.5 pr-1.5 py-1.5 transition-colors',
+          listening ? 'border-status-danger' : 'border-border-strong focus-within:border-brand')}>
+          <button type="button" onClick={picker.open} aria-label="Photo ou fichier"
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-text-secondary active:bg-surface-subtle">
+            <Camera size={20} />
+          </button>
+          <textarea ref={inputRef} value={input} rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); send(input); } }}
+            placeholder={listening ? 'Je vous écoute…' : 'Message à DEPOTEK'}
+            enterKeyHint="send"
+            className="flex-1 min-w-0 resize-none bg-transparent px-1.5 py-[7px] text-[16px] leading-[22px] text-text-primary placeholder:text-text-muted focus:outline-none" />
+          {input.trim() && !listening ? (
+            <button disabled={busy} aria-label="Envoyer"
+              className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center shrink-0 disabled:opacity-40">
+              <ArrowUp size={20} strokeWidth={2.5} />
+            </button>
+          ) : (
+            <button type="button" onClick={listen} aria-label={listening ? 'Arrêter la dictée' : 'Dicter'}
+              className={cn('w-9 h-9 rounded-full flex items-center justify-center shrink-0',
+                listening ? 'bg-status-danger text-white animate-pulse' : 'text-text-secondary active:bg-surface-subtle')}>
+              {listening ? <Square size={14} fill="currentColor" /> : <Mic size={20} />}
+            </button>
+          )}
+        </div>
       </form>
+    </div>
+  );
+}
+
+/** Affiche le texte de l'assistant proprement : **gras**, listes à puces ou numérotées, paragraphes. */
+function RichText({ text }: { text: string }) {
+  const inline = (line: string) => line.split(/(\*\*[^*]+\*\*)/g).map((part, k) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4
+      ? <strong key={k} className="font-semibold">{part.slice(2, -2)}</strong>
+      : <React.Fragment key={k}>{part.replace(/(^|\s)\*(\S[^*]*\S|\S)\*/g, '$1$2')}</React.Fragment>);
+  const lines = text.replace(/\n{3,}/g, '\n\n').split('\n');
+  return (
+    <div className="space-y-1">
+      {lines.map((raw, i) => {
+        const line = raw.trimEnd();
+        if (!line.trim()) return <div key={i} className="h-1.5" />;
+        const h = line.match(/^#{1,4}\s+(.*)/);
+        if (h) return <p key={i} className="font-semibold pt-1">{inline(h[1])}</p>;
+        const b = line.match(/^\s*[-*•]\s+(.*)/);
+        if (b) return <div key={i} className={cn('flex gap-2', /^\s{2,}/.test(line) && 'pl-4')}><span className="text-text-muted">•</span><span className="min-w-0">{inline(b[1])}</span></div>;
+        const n = line.match(/^\s*(\d+)[.)]\s+(.*)/);
+        if (n) return <div key={i} className="flex gap-2"><span className="text-text-muted tabular-nums">{n[1]}.</span><span className="min-w-0">{inline(n[2])}</span></div>;
+        return <p key={i}>{inline(line)}</p>;
+      })}
     </div>
   );
 }
