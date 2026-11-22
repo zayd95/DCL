@@ -26,7 +26,7 @@ const GEMINI_MODELS = [
 const GEMINI_TIMEOUT_MS = 12000;
 // Un modèle saturé ou lent est mis de côté 5 minutes : les étapes suivantes partent directement sur le suivant
 const cooldown = new Map<string, number>();
-async function geminiCall(key: string, body: Record<string, unknown>): Promise<Response> {
+async function geminiCall(key: string, body: Record<string, unknown>, timeoutMs = GEMINI_TIMEOUT_MS): Promise<Response> {
   let last: Response | null = null;
   let lastErr = "";
   const ready = GEMINI_MODELS.filter((m) => (cooldown.get(m) ?? 0) < Date.now());
@@ -40,7 +40,8 @@ async function geminiCall(key: string, body: Record<string, unknown>): Promise<R
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify({ ...body, generationConfig: gen }),
-        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+        // gemini-3.8 est souvent saturé : on ne l'attend jamais plus de 10 s
+        signal: AbortSignal.timeout(m.startsWith("gemini-3") ? Math.min(timeoutMs, 10000) : timeoutMs),
       });
       console.log(`gemini ${m} ${res.status} ${Date.now() - t0}ms`);
       if (res.ok || ![400, 404, 429, 500, 503].includes(res.status)) return res;
@@ -55,9 +56,10 @@ async function geminiCall(key: string, body: Record<string, unknown>): Promise<R
   if (last) return last;
   throw new Error(`Gemini indisponible : ${lastErr}`);
 }
-const MAX_STEPS = 6;
+const MAX_STEPS = 10;
 
-type Msg = { role: "user" | "model"; text: string };
+type FileIn = { name: string; mime: string; data: string };
+type Msg = { role: "user" | "model"; text: string; files?: FileIn[] };
 // deno-lint-ignore no-explicit-any
 type Part = Record<string, any>;
 type Content = { role: "user" | "model"; parts: Part[] };
@@ -82,16 +84,24 @@ Règles :
 - Après une lecture, donne la réponse puis, si c'est utile, UNE recommandation concrète
   (ex. relancer un client en retard, écouler un lot qui expire, lancer une commande, libérer une chambre).
 - Si un outil renvoie une erreur de droits, explique simplement que ce rôle n'y a pas accès.
+- Documents joints (photos, PDF, Excel, CSV) : tu sais les lire (OCR, tableaux, écriture manuscrite), même plusieurs à la fois.
+  1. Dis en une phrase ce que c'est (facture fournisseur, bon de livraison, reçu Wave/OM, relevé, liste de prix, contrat…) et résume l'essentiel.
+  2. Rapproche chaque ligne du catalogue (outil catalogue) ; compare avec le stock, les factures ou les créances si c'est utile
+     (ex. relevé client vs factures ouvertes, bon de livraison vs lots reçus) et signale les écarts.
+  3. Si le document appelle une saisie, appelle directement TOUS les outils d'écriture nécessaires dans la même réponse
+     (ex. une reception_lot par ligne, creer_produit avant si le produit n'existe pas, completer_lot pour un coût arrivé après,
+     encaissement_client pour un reçu) : l'utilisateur validera l'ensemble en un geste.
+  4. N'invente jamais une valeur illisible : demande-la. Numéro de lot absent : utilise "<n° facture ou conteneur>-<n° de ligne>".
 - Dates au format AAAA-MM-JJ dans les appels d'outils. "Hier", "cette semaine", "ce mois" : calcule à partir de la date du jour.`;
 }
 
-async function gemini(system: string, contents: Content[], withTools = true): Promise<Part[]> {
+async function gemini(system: string, contents: Content[], withTools = true, timeoutMs = GEMINI_TIMEOUT_MS): Promise<Part[]> {
   const res = await geminiCall(GEMINI_API_KEY, {
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        tools: withTools ? [{ functionDeclarations: [...readTools, ...writeTools] }] : undefined,
-        generationConfig: { temperature: 0.2 },
-      });
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    tools: withTools ? [{ functionDeclarations: [...readTools, ...writeTools] }] : undefined,
+    generationConfig: { temperature: 0.2 },
+  }, timeoutMs);
   if (!res.ok) throw new Error(`Gemini ${res.status} : ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   return data?.candidates?.[0]?.content?.parts ?? [];
@@ -107,6 +117,30 @@ async function handleDecision(db: SupabaseClient, actionId: string, decision: st
     await db.from("assistant_actions").update({ status: "annulee", decided_at: new Date().toISOString() })
       .eq("id", actionId);
     return json({ reply: "❌ Action annulée." });
+  }
+  if (action.tool === "lot_operations") {
+    // Exécution dans l'ordre (ex. créer le produit puis le réceptionner) ; on s'arrête à la première erreur
+    const lines: string[] = [];
+    const results: unknown[] = [];
+    let failed = false;
+    for (const [i, op] of ((action.args?.ops ?? []) as { tool: string; args: Record<string, unknown> }[]).entries()) {
+      try {
+        const r = await runWriteTool(db, op.tool, op.args);
+        results.push(r);
+        lines.push(describeResult(op.tool, r as Record<string, unknown>));
+      } catch (e) {
+        failed = true;
+        lines.push(`⚠️ Opération ${i + 1} impossible : ${e instanceof Error ? e.message : String(e)}`);
+        const rest = (action.args.ops.length as number) - i - 1;
+        if (rest > 0) lines.push(`${rest} opération(s) suivante(s) non faite(s). Corrigez puis redemandez-les.`);
+        break;
+      }
+    }
+    await db.from("assistant_actions").update({
+      status: failed ? (results.length ? "executee" : "echec") : "executee",
+      result: { results, partial: failed }, decided_at: new Date().toISOString(),
+    }).eq("id", actionId);
+    return json({ reply: lines.join("\n"), result: results });
   }
   try {
     const result = await runWriteTool(db, action.tool, action.args);
@@ -148,14 +182,29 @@ Deno.serve(async (req) => {
 
   const { data: profile } = await db.from("profiles").select("full_name, role").eq("id", user.id).maybeSingle();
   const system = systemPrompt(profile?.role ?? "magasinier", profile?.full_name ?? "");
-  const contents: Content[] = messages.map((m) => ({ role: m.role, parts: [{ text: String(m.text ?? "") }] }));
+  // Pièces jointes : lues directement par Gemini (images, PDF, texte/CSV)
+  const OK_MIME = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf|text\/(plain|csv))$/;
+  let hasFiles = false;
+  const contents: Content[] = messages.map((m) => {
+    const parts: Part[] = [];
+    for (const f of (m.role === "user" && Array.isArray(m.files) ? m.files : []).slice(0, 10)) {
+      if (!f?.data || !OK_MIME.test(f.mime)) continue;
+      hasFiles = true;
+      parts.push({ text: `[Pièce jointe : ${String(f.name).slice(0, 120)}]` });
+      parts.push({ inline_data: { mime_type: f.mime, data: f.data } });
+    }
+    parts.push({ text: String(m.text ?? "") });
+    return { role: m.role, parts };
+  });
+  const stepTimeout = hasFiles ? 40000 : GEMINI_TIMEOUT_MS; // un PDF de plusieurs pages demande plus de temps
+  const deadline = hasFiles ? 85000 : 45000;
 
   const started = Date.now();
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      // Au-delà de 45 s, on répond avec ce qu'on a déjà lu plutôt que de laisser le téléphone attendre
-      if (step > 0 && Date.now() - started > 45000) break;
-      const parts = await gemini(system, contents);
+      // Passé le délai, on répond avec ce qu'on a déjà lu plutôt que de laisser le téléphone attendre
+      if (step > 0 && Date.now() - started > deadline) break;
+      const parts = await gemini(system, contents, true, stepTimeout);
       const calls = parts.filter((p) => p.functionCall);
       if (!calls.length) {
         const text = parts.map((p) => p.text ?? "").join("").trim();
@@ -163,16 +212,25 @@ Deno.serve(async (req) => {
       }
       contents.push({ role: "model", parts });
 
-      // Une écriture demandée → on s'arrête et on demande confirmation
-      const write = calls.find((c) => WRITE_TOOL_NAMES.has(c.functionCall.name));
-      if (write) {
-        const { name, args } = write.functionCall;
-        const summary = summarizeWrite(name, args ?? {});
+      // Écritures demandées → on s'arrête et on demande UNE confirmation pour l'ensemble
+      const writes = calls.filter((c) => WRITE_TOOL_NAMES.has(c.functionCall.name));
+      if (writes.length) {
+        const ops = writes.map((c) => ({ tool: c.functionCall.name as string, args: c.functionCall.args ?? {} }));
+        const intro = parts.map((p) => p.text ?? "").join("").trim();
+        const summary = ops.length === 1
+          ? summarizeWrite(ops[0].tool, ops[0].args)
+          : ops.map((o, i) => `${i + 1}. ${summarizeWrite(o.tool, o.args)}`).join("\n");
         const { data: action, error } = await db.from("assistant_actions")
-          .insert({ user_id: user.id, tool: name, args: args ?? {}, summary })
+          .insert(ops.length === 1
+            ? { user_id: user.id, tool: ops[0].tool, args: ops[0].args, summary }
+            : { user_id: user.id, tool: "lot_operations", args: { ops }, summary })
           .select("id").single();
         if (error) throw new Error(error.message);
-        return json({ reply: `Je m'apprête à faire :\n${summary}\n\nConfirmer ?`, pending_action: { id: action.id, summary } });
+        const head = ops.length === 1 ? "Je m'apprête à faire :" : `Je m'apprête à faire ${ops.length} opérations :`;
+        return json({
+          reply: `${intro ? intro + "\n\n" : ""}${head}\n${summary}\n\nConfirmer ?`,
+          pending_action: { id: action.id, summary },
+        });
       }
 
       const responses: Part[] = [];
@@ -189,7 +247,7 @@ Deno.serve(async (req) => {
       contents.push({ role: "user", parts: responses });
     }
     // Trop d'étapes : on force une réponse sans outils
-    const parts = await gemini(system, contents, false);
+    const parts = await gemini(system, contents, false, stepTimeout);
     return json({ reply: parts.map((p) => p.text ?? "").join("").trim() });
   } catch (e) {
     console.error(e);

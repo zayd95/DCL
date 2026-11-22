@@ -61,6 +61,37 @@ export const readTools = [
     parameters: obj({ recherche: { ...S, description: "Nom partiel (optionnel)" } }),
   },
   {
+    name: "catalogue",
+    description: "Catalogue des produits (SKU, nom, catégorie, unité, poids unitaire, prix par défaut). À consulter pour rapprocher les lignes d'un document des produits existants.",
+    parameters: obj({ recherche: { ...S, description: "Mot-clé (optionnel), ex. buffle, poulet, foie" } }),
+  },
+  {
+    name: "factures",
+    description: "Factures (ventes, locations) : numéro, client, dates, total, payé, statut ; avec un numéro : le détail des lignes et des paiements.",
+    parameters: obj({
+      client: { ...S, description: "Nom du client (optionnel)" },
+      numero: { ...S, description: "Numéro exact, ex. FAC-2026-00012 (optionnel)" },
+      statut: { ...S, description: "emise (non payée) | partielle | payee | annulee (optionnel)" },
+      date_debut: { ...S, description: "AAAA-MM-JJ (optionnel)" },
+      date_fin: { ...S, description: "AAAA-MM-JJ (optionnel)" },
+    }),
+  },
+  {
+    name: "mouvements",
+    description: "Historique des mouvements de stock (entrées, sorties, transferts, pertes, ajustements) avec produit, lot, entrepôt, client et motif.",
+    parameters: obj({
+      produit: { ...S, description: "Nom ou SKU partiel (optionnel)" },
+      type: { ...S, description: "entry (entrée) | exit (sortie/vente) | transfer_in | transfer_out | adjustment | loss (perte) (optionnel)" },
+      date_debut: { ...S, description: "AAAA-MM-JJ (optionnel)" },
+      date_fin: { ...S, description: "AAAA-MM-JJ (optionnel)" },
+    }),
+  },
+  {
+    name: "fournisseurs",
+    description: "Liste des fournisseurs (nom, pays, contact).",
+    parameters: obj({}),
+  },
+  {
     name: "chambres",
     description: "Chambres froides par entrepôt (Almadies, Sodida…) : capacité, remplissage, produits stockés, statut libre / stock ODS / louée, locataire, loyer, fin de location.",
     parameters: obj({ entrepot: { ...S, description: "Code ou nom d'entrepôt (optionnel)" } }),
@@ -102,7 +133,8 @@ export const writeTools = [
       date_expiration: { ...S, description: "AAAA-MM-JJ" },
       cout_unitaire: N, devise: { ...S, description: "XOF | EUR | USD" },
       taux_change_xof: { ...N, description: "Obligatoire si USD" },
-      fournisseur: S, conteneur: S, chambre: { ...S, description: "Chambre froide où ranger le lot (code ou nom)" },
+      fournisseur: S, conteneur: S, reference_facture: { ...S, description: "N° de la facture fournisseur (optionnel)" },
+      chambre: { ...S, description: "Chambre froide où ranger le lot (code ou nom)" },
       client_proprietaire: { ...S, description: "Si la marchandise appartient à un client (chambre louée)" },
     }, ["produit", "quantite", "numero_lot"]),
   },
@@ -138,6 +170,24 @@ export const writeTools = [
       debut: { ...S, description: "AAAA-MM-JJ" }, fin: { ...S, description: "AAAA-MM-JJ" },
       electricite_locataire: B, caution_fcfa: I,
     }, ["client", "chambre", "facturation", "prix_fcfa"]),
+  },
+  {
+    name: "creer_produit",
+    description: "Ajoute un produit au catalogue (avant de réceptionner un produit qui n'existe pas encore). Manager uniquement.",
+    parameters: obj({
+      sku: { ...S, description: "Code court en majuscules, ex. BUF-HQ-20" }, nom: S,
+      categorie: { ...S, description: "viande | abats | volaille | poisson | fromage | autre" },
+      unite: { ...S, description: "carton | kg | tonne | piece | sac | litre" },
+      poids_unitaire_kg: N, prix_defaut_fcfa: I, delai_reappro_jours: I,
+    }, ["sku", "nom", "unite"]),
+  },
+  {
+    name: "completer_lot",
+    description: "Complète un lot déjà en stock : date d'expiration et/ou coût d'achat (ex. depuis la facture fournisseur reçue après la marchandise).",
+    parameters: obj({
+      produit: S, numero_lot: S, date_expiration: { ...S, description: "AAAA-MM-JJ" },
+      cout_unitaire: N, devise: { ...S, description: "XOF | EUR | USD" }, taux_change_xof: N,
+    }, ["produit", "numero_lot"]),
   },
   {
     name: "deplacer_lot",
@@ -192,6 +242,41 @@ export async function runReadTool(db: SupabaseClient, name: string, a: Args): Pr
       if (a.entrepot) q = q.or(`depot_code.ilike.${orLike(a.entrepot)},depot_name.ilike.${orLike(a.entrepot)}`);
       return unwrap(await q);
     }
+    case "catalogue": {
+      let q = db.from("products").select("sku,name,category,unit_type,unit_weight_kg,default_price_xof").eq("active", true);
+      if (a.recherche) q = q.or(`name.ilike.${orLike(a.recherche)},sku.ilike.${orLike(a.recherche)},category.ilike.${orLike(a.recherche)}`);
+      return unwrap(await q.order("name").limit(200));
+    }
+    case "factures": {
+      if (a.numero) {
+        return unwrap(await db.from("invoices").select(
+          "number,kind,issue_date,due_date,status,total_xof,paid_xof,notes,clients(name),invoice_lines(description,qty,unit_price_xof,line_total_xof),payments(amount_xof,method,reference,paid_at)",
+        ).ilike("number", clean(a.numero)).limit(1));
+      }
+      let q = db.from("invoices").select("number,kind,issue_date,due_date,status,total_xof,paid_xof,clients!inner(name)")
+        .order("issue_date", { ascending: false });
+      if (a.client) q = q.ilike("clients.name", like(a.client));
+      if (a.statut) q = q.eq("status", a.statut);
+      if (a.date_debut) q = q.gte("issue_date", a.date_debut);
+      if (a.date_fin) q = q.lte("issue_date", a.date_fin);
+      return unwrap(await q.limit(60));
+    }
+    case "mouvements": {
+      let q = db.from("stock_movements").select(
+        "created_at,type,qty,reason,lots!inner(lot_number,products!inner(name,sku)),depots(code),clients(name)",
+      ).order("created_at", { ascending: false });
+      if (a.produit) {
+        const prods = unwrap(await db.from("products").select("id")
+          .or(`name.ilike.${orLike(a.produit)},sku.ilike.${orLike(a.produit)}`).limit(30)) as { id: string }[];
+        q = q.in("lots.product_id", prods.map((p) => p.id));
+      }
+      if (a.type) q = q.eq("type", a.type);
+      if (a.date_debut) q = q.gte("created_at", a.date_debut);
+      if (a.date_fin) q = q.lte("created_at", `${a.date_fin}T23:59:59`);
+      return unwrap(await q.limit(80));
+    }
+    case "fournisseurs":
+      return unwrap(await db.from("suppliers").select("name,country,contact").order("name"));
     case "clients": {
       let q = db.from("clients").select("name,phone,type,credit_limit_xof,payment_terms_days").eq("active", true);
       if (a.recherche) q = q.ilike("name", like(a.recherche));
@@ -228,6 +313,13 @@ export function summarizeWrite(name: string, a: Args): string {
       return `Location de la chambre ${a.chambre}${a.entrepot ? ` (${a.entrepot})` : ""} à ${a.client} : ` +
         (a.facturation === "forfait" ? `forfait ${fcfa(a.prix_fcfa)} jusqu'au ${a.fin}` : `${fcfa(a.prix_fcfa)} par mois`) +
         `${a.debut ? `, à partir du ${a.debut}` : ""}, électricité ${a.electricite_locataire === false ? "incluse" : "à la charge du locataire"}`;
+    case "creer_produit":
+      return `Nouveau produit ${a.nom} (${a.sku}, ${a.unite}${a.poids_unitaire_kg ? `, ${qty(a.poids_unitaire_kg)} kg` : ""})` +
+        (a.prix_defaut_fcfa ? `, prix ${fcfa(a.prix_defaut_fcfa)}` : "");
+    case "completer_lot":
+      return `Compléter le lot ${a.numero_lot} (${a.produit})` +
+        (a.date_expiration ? ` : expire le ${a.date_expiration}` : "") +
+        (a.cout_unitaire != null ? `${a.date_expiration ? "," : " :"} coût ${qty(a.cout_unitaire)} ${a.devise ?? "XOF"}` : "");
     case "deplacer_lot":
       return `Déplacer le lot ${a.numero_lot} (${a.produit}) vers la chambre ${a.chambre}`;
   }
@@ -256,7 +348,7 @@ export function runWriteTool(db: SupabaseClient, name: string, a: Args): Promise
         p_product: a.produit, p_qty: a.quantite, p_lot_number: a.numero_lot, p_depot: a.depot,
         p_expiry_date: a.date_expiration, p_cost_unit: a.cout_unitaire, p_cost_currency: a.devise ? String(a.devise).toUpperCase() : undefined,
         p_fx_rate_to_xof: a.taux_change_xof, p_supplier: a.fournisseur, p_container_no: a.conteneur,
-        p_storage_unit: a.chambre, p_owner_client: a.client_proprietaire,
+        p_invoice_ref: a.reference_facture, p_storage_unit: a.chambre, p_owner_client: a.client_proprietaire,
       });
     case "transfert":
       return call("transfer_stock", {
@@ -276,6 +368,19 @@ export function runWriteTool(db: SupabaseClient, name: string, a: Args): Promise
       return call("rent_room", {
         p_client: a.client, p_room: a.chambre, p_depot: a.entrepot, p_billing: a.facturation, p_price_xof: a.prix_fcfa,
         p_start: a.debut, p_end: a.fin, p_electricity_by_tenant: a.electricite_locataire ?? true, p_deposit_xof: a.caution_fcfa,
+      });
+    case "creer_produit": {
+      return (async () => unwrap(await db.from("products").insert({
+        sku: String(a.sku).toUpperCase().trim(), name: a.nom, category: a.categorie ?? null,
+        unit_type: a.unite ?? "carton", unit_weight_kg: a.poids_unitaire_kg ?? null,
+        default_price_xof: a.prix_defaut_fcfa ?? null, lead_time_days: a.delai_reappro_jours ?? 45,
+      }).select("sku,name").single()))();
+    }
+    case "completer_lot":
+      return call("update_lot_info", {
+        p_product: a.produit, p_lot_number: a.numero_lot, p_expiry_date: a.date_expiration,
+        p_cost_unit: a.cout_unitaire, p_cost_currency: a.devise ? String(a.devise).toUpperCase() : undefined,
+        p_fx_rate_to_xof: a.taux_change_xof,
       });
     case "deplacer_lot":
       return call("move_lot", { p_product: a.produit, p_lot_number: a.numero_lot, p_room: a.chambre, p_depot: a.entrepot });
@@ -306,6 +411,10 @@ export function describeResult(name: string, r: Args): string {
         ((r.invoices ?? [])[0] ? ` Facture ${r.invoices[0].invoice_number} : ${fcfa(r.invoices[0].total_xof)}.` : "");
     case "deplacer_lot":
       return `✅ Lot ${r.lot_number} rangé dans ${r.room}.`;
+    case "creer_produit":
+      return `✅ Produit ${r.name} (${r.sku}) ajouté au catalogue.`;
+    case "completer_lot":
+      return `✅ Lot complété.`;
   }
   return "✅ Fait.";
 }
