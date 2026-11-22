@@ -13,7 +13,7 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/format.ts";
 import {
-  describeResult, readTools, runReadTool, runWriteTool, summarizeWrite, WRITE_TOOL_NAMES, writeTools,
+  checkOps, describeResult, readTools, runReadTool, runWriteTool, summarizeWrite, WRITE_TOOL_NAMES, writeTools,
 } from "./tools.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
@@ -84,6 +84,9 @@ Règles :
 - Après une lecture, donne la réponse puis, si c'est utile, UNE recommandation concrète
   (ex. relancer un client en retard, écouler un lot qui expire, lancer une commande, libérer une chambre).
 - Si un outil renvoie une erreur de droits, explique simplement que ce rôle n'y a pas accès.
+- Chambres : n'invente JAMAIS un nom de chambre. Avant une réception, un transfert ou une location, appelle l'outil chambres et choisis
+  une chambre existante (code, ex. CB1) de l'entrepôt voulu, adaptée au produit (catégories) et avec de la place ; dis pourquoi en quelques mots.
+  Si plusieurs choix se valent ou si rien ne convient, demande à l'utilisateur. Même règle pour les produits : utilise le SKU exact du catalogue.
 - Documents joints (photos, PDF, Excel, CSV) : tu sais les lire (OCR, tableaux, écriture manuscrite), même plusieurs à la fois.
   1. Dis en une phrase ce que c'est (facture fournisseur, bon de livraison, reçu Wave/OM, relevé, liste de prix, contrat…) et résume l'essentiel.
   2. Rapproche chaque ligne du catalogue (outil catalogue) ; compare avec le stock, les factures ou les créances si c'est utile
@@ -216,6 +219,23 @@ Deno.serve(async (req) => {
       const writes = calls.filter((c) => WRITE_TOOL_NAMES.has(c.functionCall.name));
       if (writes.length) {
         const ops = writes.map((c) => ({ tool: c.functionCall.name as string, args: c.functionCall.args ?? {} }));
+        const problems = await checkOps(db, ops);
+        if (problems.length && step < MAX_STEPS - 2) {
+          // On renvoie les erreurs au modèle : il corrige (bonne chambre, bon produit) ou pose la question
+          const fix: Part[] = [];
+          for (const c of calls) {
+            const { name, args } = c.functionCall;
+            let response: unknown;
+            if (WRITE_TOOL_NAMES.has(name)) {
+              response = { erreur: "Non enregistré. À corriger avant de proposer : " + problems.join(" | ") };
+            } else {
+              try { response = { resultat: await runReadTool(db, name, args ?? {}) }; } catch (e) { response = { erreur: String(e) }; }
+            }
+            fix.push({ functionResponse: { name, response } });
+          }
+          contents.push({ role: "user", parts: fix });
+          continue;
+        }
         const intro = parts.map((p) => p.text ?? "").join("").trim();
         const summary = ops.length === 1
           ? summarizeWrite(ops[0].tool, ops[0].args)
