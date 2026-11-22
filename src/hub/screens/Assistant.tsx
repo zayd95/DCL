@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, ArrowUp, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search, Copy, Volume2, RotateCcw, Square } from 'lucide-react';
-import { supabase, rpc, type Profile, canSeeFinance, uploadDocument } from '../supabase';
+import { FileText, Sheet, Mic, ArrowUp, Check, X, Camera, ArrowUpFromLine, ArrowDownToLine, Banknote, Search, Copy, Volume2, RotateCcw, Square } from 'lucide-react';
+import { supabase, rpc, type Profile, canSeeFinance } from '../supabase';
+import { prepareFile, MAX_TOTAL, type Attachment } from '../attach';
 import { fcfa, useDocPicker } from '../ui';
 import { cx as cn } from '../cx';
 
-type Msg = { role: 'user' | 'model'; text: string; action?: { id: string; summary: string; state?: 'done' } };
+type FileMeta = Pick<Attachment, 'name' | 'kind' | 'preview'>;
+type Msg = { role: 'user' | 'model'; text: string; files?: FileMeta[]; action?: { id: string; summary: string; state?: 'done' } };
 
 // Phrases modèles : elles remplissent la zone de saisie, il suffit d'ajuster et d'envoyer
 const TEMPLATES = [
@@ -57,28 +59,40 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
     })();
   }, [messages.length, finance]);
 
-  const picker = useDocPicker((f) => sendFile(f));
-  const sendFile = async (file: File) => {
-    setMessages((m) => [...m, { role: 'user', text: `📎 ${file.name || 'Photo du document'}` }]);
-    setBusy(true);
+  // Pièces jointes : préparées tout de suite (photo réduite, Excel → tableau), envoyées avec le message
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [preparing, setPreparing] = useState(0);
+  // Contenu des fichiers déjà envoyés (en mémoire seulement) : l'assistant peut répondre aux questions de suite
+  const sentFiles = useRef<Map<number, Attachment[]>>(new Map());
+  const addFile = async (file: File) => {
+    setPreparing((n) => n + 1);
     try {
-      await uploadDocument(profile.id, file);
-      setMessages((m) => [...m, { role: 'model', text: 'Document reçu. Je le lis et je prépare la saisie (réception, facture fournisseur…). Vous la validerez en un geste dans « À traiter ».' }]);
+      const a = await prepareFile(file);
+      setPending((p) => {
+        const total = p.reduce((s, x) => s + x.size, 0) + a.size;
+        if (total > MAX_TOTAL) {
+          setMessages((m) => [...m, { role: 'model', text: `⚠️ ${a.name} : trop de fichiers en une fois (16 Mo max). Envoyez-les en deux fois.` }]);
+          return p;
+        }
+        return [...p, a];
+      });
+      inputRef.current?.focus();
     } catch (e) {
       setMessages((m) => [...m, { role: 'model', text: `⚠️ ${(e as Error).message}` }]);
     } finally {
-      setBusy(false);
+      setPreparing((n) => n - 1);
     }
   };
+  const picker = useDocPicker((f) => void addFile(f), { multiple: true, accept: 'image/*,application/pdf,.csv,.txt,.xlsx,.xls,.ods' });
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch { /* stockage indisponible */ }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40).map((m) => (m.files ? { ...m, files: m.files.map(({ name, kind }) => ({ name, kind })) } : m)))); } catch { /* stockage indisponible */ }
     if (messages.length) endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const call = async (body: Record<string, unknown>) => {
     // Le téléphone n'attend jamais plus de 60 s : au-delà, message clair plutôt qu'un écran figé
-    const { data, error } = await supabase.functions.invoke('assistant', { body, timeout: 60000 }).catch(() => ({
+    const { data, error } = await supabase.functions.invoke('assistant', { body, timeout: 100000 }).catch(() => ({
       data: null,
       error: new Error("L'assistant met trop de temps à répondre. Réessayez dans un instant."),
     }));
@@ -96,14 +110,25 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
   };
 
   const send = async (text: string) => {
-    const t = text.trim();
-    if (!t || busy) return;
-    const next: Msg[] = [...messages, { role: 'user', text: t }];
+    const files = pending;
+    const t = text.trim() || (files.length ? (files.length > 1 ? 'Analyse ces documents.' : 'Analyse ce document.') : '');
+    if (!t || busy || preparing) return;
+    const idx = messages.length;
+    const next: Msg[] = [...messages, { role: 'user', text: t, files: files.length ? files.map(({ name, kind, preview }) => ({ name, kind, preview })) : undefined }];
+    if (files.length) sentFiles.current.set(idx, files);
     setMessages(next);
     setInput('');
+    setPending([]);
     setBusy(true);
     try {
-      const history = next.filter((m) => !m.text.startsWith('⚠️')).slice(-16).map(({ role, text }) => ({ role, text }));
+      // Les 2 derniers envois de fichiers restent joints : on peut poser des questions de suite sur le dossier
+      const withFiles = new Set([...sentFiles.current.keys()].filter((k) => k < next.length).sort((a, b) => b - a).slice(0, 2));
+      const history = next.map((m, i) => ({ m, i })).filter(({ m }) => !m.text.startsWith('⚠️')).slice(-16)
+        .map(({ m, i }) => ({
+          role: m.role,
+          text: m.files && !withFiles.has(i) ? `${m.text}\n[Pièces jointes déjà analysées : ${m.files.map((f) => f.name).join(', ')}]` : m.text,
+          files: withFiles.has(i) ? sentFiles.current.get(i)!.map(({ name, mime, data }) => ({ name, mime, data })) : undefined,
+        }));
       const res = await call({ messages: history });
       setMessages((m) => [...m, { role: 'model', text: res.reply, action: res.pending_action }]);
     } catch (e) {
@@ -248,8 +273,8 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
                   className="w-full flex items-start gap-3 px-4 py-3 text-left border-t border-border-default active:bg-surface-subtle">
                   <Camera size={18} className="text-brand mt-0.5 shrink-0" />
                   <span>
-                    <span className="block text-caption font-semibold text-text-primary">Photo d’un document</span>
-                    <span className="block text-caption text-text-muted">Bon de livraison, facture fournisseur, reçu : je saisis pour vous</span>
+                    <span className="block text-caption font-semibold text-text-primary">Documents et dossiers</span>
+                    <span className="block text-caption text-text-muted">Factures, bons de livraison, reçus, relevés, Excel : je lis, je résume et je saisis pour vous</span>
                   </span>
                 </button>
               </div>
@@ -272,6 +297,15 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
                 m.role === 'user' ? 'bg-brand text-white rounded-br-md whitespace-pre-wrap'
                   : isErr ? 'bg-status-danger/10 text-status-danger rounded-bl-md'
                   : 'bg-surface-card text-text-primary rounded-bl-md shadow-sm')}>
+                {m.files && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {m.files.map((f, k) => f.preview
+                      ? <img key={k} src={f.preview} alt={f.name} className="w-16 h-16 rounded-xl object-cover border border-white/30" />
+                      : <span key={k} className="flex items-center gap-1 rounded-lg bg-white/15 px-2 py-1 text-caption max-w-[180px]">
+                          {f.kind === 'table' ? <Sheet size={14} /> : <FileText size={14} />}<span className="truncate">{f.name}</span>
+                        </span>)}
+                  </div>
+                )}
                 {m.role === 'user' ? m.text : <RichText text={m.text} />}
                 {m.action && !m.action.state && (
                   <div className="flex gap-2 mt-3">
@@ -301,6 +335,9 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
             </div>
           );
         })}
+        {busy && messages[messages.length - 1]?.files && (
+          <p className="text-caption text-text-muted px-1">Lecture des documents…</p>
+        )}
         {busy && (
           <div className="flex items-center gap-1 bg-surface-card rounded-[20px] rounded-bl-md px-4 py-3.5 w-fit shadow-sm" aria-label="DEPOTEK réfléchit">
             {[0, 1, 2].map((d) => <span key={d} className="w-2 h-2 rounded-full bg-text-muted animate-bounce" style={{ animationDelay: `${d * 150}ms` }} />)}
@@ -320,20 +357,39 @@ export function Assistant({ profile, openTasks = 0 }: { profile: Profile; openTa
       )}
       <form onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="px-3 pt-2 pb-24 bg-surface-page">
+        {(pending.length > 0 || preparing > 0) && (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+            {pending.map((f, k) => (
+              <div key={k} className="relative shrink-0">
+                {f.preview
+                  ? <img src={f.preview} alt={f.name} className="w-14 h-14 rounded-xl object-cover border border-border-default" />
+                  : <div className="h-14 max-w-[150px] rounded-xl bg-surface-card border border-border-default px-2.5 flex items-center gap-1.5 text-caption text-text-primary">
+                      {f.kind === 'table' ? <Sheet size={16} className="text-status-success shrink-0" /> : <FileText size={16} className="text-status-danger shrink-0" />}
+                      <span className="truncate">{f.name}</span>
+                    </div>}
+                <button type="button" onClick={() => setPending((p) => p.filter((_, j) => j !== k))} aria-label={`Retirer ${f.name}`}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-text-primary text-white flex items-center justify-center">
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            {preparing > 0 && <div className="w-14 h-14 rounded-xl bg-surface-subtle animate-pulse shrink-0" />}
+          </div>
+        )}
         <div className={cn('flex items-end gap-1 rounded-[24px] border bg-surface-card pl-1.5 pr-1.5 py-1.5 transition-colors',
           listening ? 'border-status-danger' : 'border-border-strong focus-within:border-brand')}>
-          <button type="button" onClick={picker.open} aria-label="Photo ou fichier"
+          <button type="button" onClick={picker.open} aria-label="Joindre une photo ou des fichiers"
             className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-text-secondary active:bg-surface-subtle">
             <Camera size={20} />
           </button>
           <textarea ref={inputRef} value={input} rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); send(input); } }}
-            placeholder={listening ? 'Je vous écoute…' : 'Message à DEPOTEK'}
+            placeholder={listening ? 'Je vous écoute…' : pending.length ? 'Que dois-je en faire ? (facultatif)' : 'Message à DEPOTEK'}
             enterKeyHint="send"
             className="flex-1 min-w-0 resize-none bg-transparent px-1.5 py-[7px] text-[16px] leading-[22px] text-text-primary placeholder:text-text-muted focus:outline-none" />
-          {input.trim() && !listening ? (
-            <button disabled={busy} aria-label="Envoyer"
+          {(input.trim() || pending.length > 0) && !listening ? (
+            <button disabled={busy || preparing > 0} aria-label="Envoyer"
               className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center shrink-0 disabled:opacity-40">
               <ArrowUp size={20} strokeWidth={2.5} />
             </button>
